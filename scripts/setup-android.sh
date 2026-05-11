@@ -40,6 +40,19 @@ print("   ✅ AdMob App ID injected into AndroidManifest.xml")
 PYEOF
 fi
 
+echo "🎨 Copying app icons..."
+DENSITIES=("mipmap-mdpi" "mipmap-hdpi" "mipmap-xhdpi" "mipmap-xxhdpi" "mipmap-xxxhdpi")
+for density in "${DENSITIES[@]}"; do
+  SRC="android-resources/$density"
+  DEST="android/app/src/main/res/$density"
+  if [ -d "$SRC" ]; then
+    mkdir -p "$DEST"
+    cp "$SRC/ic_launcher.png" "$DEST/ic_launcher.png"
+    cp "$SRC/ic_launcher_round.png" "$DEST/ic_launcher_round.png"
+    echo "   ✅ Copied $density icons"
+  fi
+done
+
 echo ""
 echo "✅ Android setup complete!"
 echo "   Run: npx cap open android"
