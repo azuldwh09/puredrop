@@ -1,0 +1,14 @@
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,6 +1,11 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <!-- AdMob App ID — required by Google Mobile Ads SDK -->
++    <meta-data
++        android:name="com.google.android.gms.ads.APPLICATION_ID"
++        android:value="ca-app-pub-2912984715921362~2822387889"/>
++
+     <application
+         android:allowBackup="true"
+         android:icon="@mipmap/ic_launcher"

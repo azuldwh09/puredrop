@@ -1,83 +1,79 @@
 # 💧 PureDrop
 
-A fast-paced arcade challenge where you navigate stormy skies to catch pure raindrops while dodging obstacles and contaminated water.
+A fast-paced arcade challenge — catch pure raindrops, dodge the contaminated ones.
 
-## 🚀 Tech Stack
+**App ID:** `com.base69e449509428256538e448f2.app`  
+**Web:** [pure-rain-catch.base44.app](https://pure-rain-catch.base44.app)
 
-- **Frontend:** React + Vite
-- **Mobile:** Capacitor (iOS + Android)
-- **Backend:** Base44 (PlayerProfile, LevelScore, Leaderboard entities)
-- **Offline-first:** Capacitor Preferences + Network plugin with automatic sync queue
+---
 
-## 📱 Offline-First Architecture
-
-PureDrop is built offline-first:
-- All game data (scores, profiles) are saved **locally first**
-- When online, data syncs automatically to the Base44 backend
-- A pending sync queue ensures no data is lost while offline
-- The leaderboard caches locally and updates when connectivity returns
-- An offline banner notifies players when they're disconnected
-
-## 🛠 Setup
+## 🚀 Quick Start
 
 ```bash
+git clone https://github.com/azuldwh09/puredrop.git
+cd puredrop
 npm install
+npm run dev        # run in browser
 ```
 
-### Run in browser
+---
+
+## 📱 Android Build (first time)
+
 ```bash
-npm run dev
+bash scripts/setup-android.sh
+npx cap open android
 ```
 
-### Build + sync to native platforms
+This script:
+1. Builds the web assets
+2. Adds the Android platform via Capacitor
+3. Syncs all plugins
+4. **Injects the AdMob App ID** into `AndroidManifest.xml` automatically
+
+---
+
+## 🔄 Subsequent Android Syncs
+
+After making changes:
 ```bash
-npm run sync
+npm run build
+npx cap sync android
+npx cap open android
 ```
 
-### Open in Android Studio
-```bash
-npm run open:android
-```
+---
 
-### Open in Xcode (iOS)
-```bash
-npm run open:ios
-```
+## 📺 AdMob
 
-## 📁 Project Structure
+| | Value |
+|---|---|
+| **App ID** | `ca-app-pub-2912984715921362~2822387889` |
+| **NewCupAd Unit** | `ca-app-pub-2912984715921362/8687061841` |
+| **Ad Type** | Rewarded Interstitial |
+| **Placement** | Home screen — shown when player has 0 cups |
+
+The `AndroidManifest.xml` meta-data entry is injected automatically by `scripts/setup-android.sh`.
+
+---
+
+## 🏗️ Project Structure
 
 ```
 src/
   api/
-    offlineSync.js     # Offline-first data layer with sync queue
-  hooks/
-    useNetwork.js      # React hook for real-time network status
-  components/
-    OfflineBanner.jsx  # Shows offline status to users
-  game/               # Game logic
-  screens/            # App screens (Home, Game, Leaderboard)
-  store/              # State management
-capacitor.config.json  # Capacitor configuration
+    admob.js          # AdMob init + showNewCupAd()
+    offlineSync.js    # Local storage + Base44 sync
+  game/
+    constants.js      # Levels, skins, difficulty tiers
+    gameEngine.js     # Drop physics, scoring, purity calc
+  screens/
+    HomeScreen.jsx    # Main menu, cups/lives, ad button
+    GameScreen.jsx    # Canvas game loop
+    ResultScreen.jsx  # Win/lose, stars, score
+    LeaderboardScreen.jsx
+    SkinsScreen.jsx
+    SettingsScreen.jsx
+  store/
+    gameStore.js      # Zustand state (persisted)
 ```
-
-## 🔧 Environment
-
-Set your Base44 app URL in `src/api/offlineSync.js`:
-```js
-const BASE_URL = 'https://sanjay-44af4aac.base44.app';
-```
-
-## 📦 Capacitor Plugins
-
-- `@capacitor/network` — Online/offline detection
-- `@capacitor/preferences` — Local key-value storage
-- `@capacitor/splash-screen` — Native splash screen
-- `@capacitor/status-bar` — Status bar styling
-
-## 🗺 Roadmap
-
-- [ ] Migrate game logic from Base44 app
-- [ ] Add Android build + sign config
-- [ ] Submit to Google Play Store
-- [ ] iOS build (future)
-- [ ] Submit to Apple App Store (future)
