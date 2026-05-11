@@ -133,9 +133,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const navigateToLogin = () => {
-    // On native mobile, open login in system browser with deep link callback
+    // On native mobile, open the actual Base44 login page in the system browser
     if (isNativeMobile()) {
-      const loginUrl = `https://pure-rain-catch.base44.app?redirect=puredrop://auth`;
+      const appId = '69e449509428256538e448f2';
+      const redirectUri = encodeURIComponent('puredrop://auth');
+      const loginUrl = `https://app.base44.com/login?app_id=${appId}&redirect_uri=${redirectUri}`;
       window.open(loginUrl, '_system');
       return;
     }
