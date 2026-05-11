@@ -1,0 +1,60 @@
+{
+  "name": "PlayerProfile",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "cups": {
+      "type": "number",
+      "default": 5
+    },
+    "last_refill_time": {
+      "type": "string"
+    },
+    "selected_cup_skin": {
+      "type": "string",
+      "default": "classic"
+    },
+    "highest_level": {
+      "type": "number",
+      "default": 1
+    },
+    "total_score": {
+      "type": "number",
+      "default": 0
+    },
+    "streak": {
+      "type": "number",
+      "default": 0
+    },
+    "last_play_date": {
+      "type": "string"
+    },
+    "difficulty_tier": {
+      "type": "number",
+      "default": 1
+    },
+    "hide_from_leaderboard": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_email"
+  ],
+  "rls": {
+    "create": {
+      "data.user_email": "{{user.email}}"
+    },
+    "read": {
+      "data.user_email": "{{user.email}}"
+    },
+    "update": {
+      "data.user_email": "{{user.email}}"
+    },
+    "delete": {
+      "data.user_email": "{{user.email}}"
+    }
+  }
+}

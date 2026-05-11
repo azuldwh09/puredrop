@@ -1,79 +1,39 @@
-# 💧 PureDrop
+**Welcome to your Base44 project** 
 
-A fast-paced arcade challenge — catch pure raindrops, dodge the contaminated ones.
+**About**
 
-**App ID:** `com.base69e449509428256538e448f2.app`  
-**Web:** [pure-rain-catch.base44.app](https://pure-rain-catch.base44.app)
+View and Edit  your app on [Base44.com](http://Base44.com) 
 
----
+This project contains everything you need to run your app locally.
 
-## 🚀 Quick Start
+**Edit the code in your local development environment**
 
-```bash
-git clone https://github.com/azuldwh09/puredrop.git
-cd puredrop
-npm install
-npm run dev        # run in browser
-```
+Any change pushed to the repo will also be reflected in the Base44 Builder.
 
----
+**Prerequisites:** 
 
-## 📱 Android Build (first time)
-
-```bash
-bash scripts/setup-android.sh
-npx cap open android
-```
-
-This script:
-1. Builds the web assets
-2. Adds the Android platform via Capacitor
-3. Syncs all plugins
-4. **Injects the AdMob App ID** into `AndroidManifest.xml` automatically
-
----
-
-## 🔄 Subsequent Android Syncs
-
-After making changes:
-```bash
-npm run build
-npx cap sync android
-npx cap open android
-```
-
----
-
-## 📺 AdMob
-
-| | Value |
-|---|---|
-| **App ID** | `ca-app-pub-2912984715921362~2822387889` |
-| **NewCupAd Unit** | `ca-app-pub-2912984715921362/8687061841` |
-| **Ad Type** | Rewarded Interstitial |
-| **Placement** | Home screen — shown when player has 0 cups |
-
-The `AndroidManifest.xml` meta-data entry is injected automatically by `scripts/setup-android.sh`.
-
----
-
-## 🏗️ Project Structure
+1. Clone the repository using the project's Git URL 
+2. Navigate to the project directory
+3. Install dependencies: `npm install`
+4. Create an `.env.local` file and set the right environment variables
 
 ```
-src/
-  api/
-    admob.js          # AdMob init + showNewCupAd()
-    offlineSync.js    # Local storage + Base44 sync
-  game/
-    constants.js      # Levels, skins, difficulty tiers
-    gameEngine.js     # Drop physics, scoring, purity calc
-  screens/
-    HomeScreen.jsx    # Main menu, cups/lives, ad button
-    GameScreen.jsx    # Canvas game loop
-    ResultScreen.jsx  # Win/lose, stars, score
-    LeaderboardScreen.jsx
-    SkinsScreen.jsx
-    SettingsScreen.jsx
-  store/
-    gameStore.js      # Zustand state (persisted)
+VITE_BASE44_APP_ID=your_app_id
+VITE_BASE44_APP_BASE_URL=your_backend_url
+
+e.g.
+VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
+VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
 ```
+
+Run the app: `npm run dev`
+
+**Publish your changes**
+
+Open [Base44.com](http://Base44.com) and click on Publish.
+
+**Docs & Support**
+
+Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+
+Support: [https://app.base44.com/support](https://app.base44.com/support)

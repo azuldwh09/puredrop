@@ -2,9 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>puredrop</title>
+    <link rel="icon" type="image/svg+xml" href="https://base44.com/logo_v2.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0d2040" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#e8f4fb" media="(prefers-color-scheme: light)" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>PureDrop</title>
+    <!-- Inline script: apply dark/light class BEFORE first paint to avoid flash -->
+    <script>
+      (function() {
+        var stored = localStorage.getItem('puredrop_dark_mode');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var useDark = stored !== null ? stored !== 'false' : prefersDark;
+        if (!useDark) document.documentElement.classList.add('light');
+      })();
+    </script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2912984715921362" crossorigin="anonymous"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,0 +1,48 @@
+{
+  "name": "LevelScore",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "level": {
+      "type": "number"
+    },
+    "score": {
+      "type": "number"
+    },
+    "purity": {
+      "type": "number"
+    },
+    "win": {
+      "type": "boolean"
+    },
+    "stars": {
+      "type": "number",
+      "default": 0
+    },
+    "accuracy": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "user_email",
+    "level",
+    "score"
+  ],
+  "rls": {
+    "create": {
+      "data.user_email": "{{user.email}}"
+    },
+    "read": {
+      "data.user_email": "{{user.email}}"
+    },
+    "update": {
+      "data.user_email": "{{user.email}}"
+    },
+    "delete": {
+      "data.user_email": "{{user.email}}"
+    }
+  }
+}

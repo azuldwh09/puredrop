@@ -1,0 +1,26 @@
+{
+  "name": "Leaderboard",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "level": {
+      "type": "number"
+    },
+    "score": {
+      "type": "number"
+    },
+    "purity": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "user_email",
+    "level",
+    "score"
+  ]
+}

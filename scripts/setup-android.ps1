@@ -1,8 +1,11 @@
 # PureDrop - Android setup script (Windows PowerShell)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\setup-android.ps1
 
-Write-Host "Building web assets..."
-npm run build
+Write-Host "Installing dependencies..."
+npm install
+
+Write-Host "Building web assets for mobile..."
+npm run build:mobile
 
 Write-Host "Adding Android platform..."
 npx cap add android
