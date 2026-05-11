@@ -14,6 +14,7 @@
     "cap:sync": "npx cap sync"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^7.2.0",
     "@capacitor/android": "^8.3.3",
     "@capacitor/cli": "^7.6.4",
     "@capacitor/core": "^8.3.3",

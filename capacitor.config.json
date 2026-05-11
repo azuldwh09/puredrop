@@ -6,6 +6,12 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "AdMob": {
+      "appId": {
+        "android": "ca-app-pub-2912984715921362~2822387889",
+        "ios": "ca-app-pub-2912984715921362~2822387889"
+      }
+    },
     "SplashScreen": {
       "launchShowDuration": 2000,
       "backgroundColor": "#0a1628",

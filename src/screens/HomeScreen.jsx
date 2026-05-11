@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { CUP_SKINS } from '../game/constants';
+import { showNewCupAd } from '../api/admob';
 
 const CUP_MAX = 5;
 const CUP_REFILL_HOURS = 3;
@@ -11,14 +12,15 @@ export default function HomeScreen({ onPlay, onLeaderboard, onSkins, onSettings 
     selectedCupSkin, checkCupRefill, lastRefillTime,
   } = useGameStore();
   const skin = CUP_SKINS.find(s => s.id === selectedCupSkin) || CUP_SKINS[0];
+  const [adLoading, setAdLoading] = useState(false);
+  const [adMsg, setAdMsg] = useState('');
 
   useEffect(() => {
     checkCupRefill();
-    const interval = setInterval(checkCupRefill, 60 * 1000); // check every minute
+    const interval = setInterval(checkCupRefill, 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Calculate next refill time
   const nextRefill = () => {
     if (cups >= CUP_MAX) return null;
     if (!lastRefillTime) return `${CUP_REFILL_HOURS}h`;
@@ -27,6 +29,23 @@ export default function HomeScreen({ onPlay, onLeaderboard, onSkins, onSettings 
     const h = Math.floor(diff / 3600000);
     const m = Math.floor((diff % 3600000) / 60000);
     return `${h}h ${m}m`;
+  };
+
+  const handleWatchAd = async () => {
+    setAdLoading(true);
+    setAdMsg('');
+    const earned = await showNewCupAd();
+    if (earned) {
+      useGameStore.getState().useCup(); // decrement to trigger store update... 
+      // Actually add a cup instead
+      const store = useGameStore.getState();
+      useGameStore.setState({ cups: Math.min(CUP_MAX, store.cups + 1) });
+      setAdMsg('🥤 You earned a cup!');
+    } else {
+      setAdMsg('Ad skipped — no cup earned.');
+    }
+    setAdLoading(false);
+    setTimeout(() => setAdMsg(''), 3000);
   };
 
   return (
@@ -49,8 +68,9 @@ export default function HomeScreen({ onPlay, onLeaderboard, onSkins, onSettings 
         ))}
       </div>
       {cups < CUP_MAX && (
-        <p style={styles.refillText}>Next cup in {nextRefill()}</p>
+        <p style={styles.refillText}>Next free cup in {nextRefill()}</p>
       )}
+      {adMsg ? <p style={styles.adMsg}>{adMsg}</p> : null}
 
       <div style={styles.cupPreview}>
         <div style={{
@@ -73,6 +93,17 @@ export default function HomeScreen({ onPlay, onLeaderboard, onSkins, onSettings 
         {cups <= 0 ? '⏳ No cups left' : `▶ Play — Level ${highestLevel}`}
       </button>
 
+      {/* Watch ad to earn a cup — shown when out of cups */}
+      {cups <= 0 && (
+        <button
+          style={styles.adBtn}
+          onClick={handleWatchAd}
+          disabled={adLoading}
+        >
+          {adLoading ? '⏳ Loading ad...' : '📺 Watch Ad for a Free Cup'}
+        </button>
+      )}
+
       <div style={styles.secondaryBtns}>
         <button style={styles.secBtn} onClick={onSkins}>🎨 Skins</button>
         <button style={styles.secBtn} onClick={onLeaderboard}>🏅 Leaderboard</button>
@@ -92,10 +123,12 @@ const styles = {
   statVal: { fontSize: 16, fontWeight: 'bold' },
   statLabel: { fontSize: 11, color: '#aaa', marginTop: 4 },
   cupsRow: { display: 'flex', gap: 8, marginBottom: 4 },
-  refillText: { color: '#aaa', fontSize: 12, marginBottom: 16, marginTop: 0 },
-  cupPreview: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 },
+  refillText: { color: '#aaa', fontSize: 12, marginBottom: 8, marginTop: 0 },
+  adMsg: { color: '#4fc3f7', fontSize: 14, marginBottom: 8, fontWeight: 'bold' },
+  cupPreview: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 },
   cupShape: { width: 70, height: 70, borderRadius: 28, border: '3px solid', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  playBtn: { background: '#4fc3f7', color: '#0a1628', border: 'none', borderRadius: 14, padding: '16px 48px', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', marginBottom: 16, width: '100%', maxWidth: 320 },
+  playBtn: { background: '#4fc3f7', color: '#0a1628', border: 'none', borderRadius: 14, padding: '16px 48px', fontSize: 18, fontWeight: 'bold', cursor: 'pointer', marginBottom: 10, width: '100%', maxWidth: 320 },
+  adBtn: { background: 'linear-gradient(135deg,#7B2FBE,#4fc3f7)', color: 'white', border: 'none', borderRadius: 14, padding: '14px 24px', fontSize: 15, fontWeight: 'bold', cursor: 'pointer', marginBottom: 16, width: '100%', maxWidth: 320 },
   secondaryBtns: { display: 'flex', gap: 10, width: '100%', maxWidth: 320 },
   secBtn: { flex: 1, background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 12, padding: '10px 6px', fontSize: 13, cursor: 'pointer' },
 };
