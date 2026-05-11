@@ -1,7 +1,7 @@
 import { Preferences } from '@capacitor/preferences';
 import { Network } from '@capacitor/network';
 
-const BASE_URL = 'https://sanjay-44af4aac.base44.app';
+const BASE_URL = 'https://pure-rain-catch.base44.app';
 
 // Keys for local storage
 const KEYS = {
