@@ -3,62 +3,113 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Play, X, CheckCircle } from 'lucide-react';
 
-export default function AdModal({ onEarn, onClose }) {
-  const [phase, setPhase] = useState('prompt'); // prompt | watching | done | error
-  const [countdown, setCountdown] = useState(5);
-  const [adAvailable, setAdAvailable] = useState(true);
+// Detect native Capacitor environment
+const isNative = () =>
+  typeof window !== 'undefined' &&
+  (window.Capacitor?.isNativePlatform?.() ||
+    (typeof window.Capacitor !== 'undefined' && window.Capacitor.isNative));
 
+const AD_UNIT_ID = 'ca-app-pub-2912984715921362/8687061841';
+
+export default function AdModal({ onEarn, onClose }) {
+  const [phase, setPhase] = useState('prompt'); // prompt | loading | watching | done | error | unavailable
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Preload the rewarded interstitial ad as soon as modal opens
   useEffect(() => {
-    // Check if the H5 Games Ads API is ready
-    if (typeof window.adBreak !== 'function') {
-      // Not yet loaded — try to init it
-      window.adsbygoogle = window.adsbygoogle || [];
-      window.adBreak = window.adConfig = function(o) { window.adsbygoogle.push(o); };
-    }
+    if (!isNative()) return;
+    preloadAd();
   }, []);
 
-  const startAd = () => {
+  const preloadAd = async () => {
+    try {
+      const { RewardedInterstitialAd } = await import('@capacitor-community/admob');
+      await RewardedInterstitialAd.prepareRewardVideoAd({
+        adId: AD_UNIT_ID,
+        isTesting: false,
+      });
+    } catch (e) {
+      console.log('Ad preload (non-critical):', e?.message);
+    }
+  };
+
+  const startAd = async () => {
+    // --- Native Capacitor path: real AdMob rewarded interstitial ---
+    if (isNative()) {
+      setPhase('loading');
+      try {
+        const { RewardedInterstitialAd, AdMob } = await import('@capacitor-community/admob');
+
+        // Initialize AdMob if not already done
+        await AdMob.initialize({
+          requestTrackingAuthorization: false,
+          testingDevices: [],
+          initializeForTesting: false,
+        }).catch(() => {}); // ignore if already initialized
+
+        // Prepare the ad
+        await RewardedInterstitialAd.prepareRewardVideoAd({
+          adId: AD_UNIT_ID,
+          isTesting: false,
+        });
+
+        setPhase('watching');
+
+        // Show and await result
+        const result = await RewardedInterstitialAd.showRewardVideoAd();
+
+        if (result?.reward?.amount >= 0) {
+          setPhase('done');
+        } else {
+          setErrorMsg('Ad was dismissed before completing.');
+          setPhase('error');
+        }
+      } catch (err) {
+        console.error('AdMob error:', err);
+        if (err?.message?.includes('not available') || err?.message?.includes('No fill') || err?.message?.includes('load')) {
+          setErrorMsg('No ad available right now. Try again later.');
+          setPhase('unavailable');
+        } else {
+          setErrorMsg(err?.message || 'Something went wrong with the ad.');
+          setPhase('error');
+        }
+      }
+      return;
+    }
+
+    // --- Web fallback: H5 Ad API ---
     setPhase('watching');
     let adHandled = false;
 
-    // Start fallback countdown immediately
-    let t = 5;
-    setCountdown(t);
-    const iv = setInterval(() => {
-      t--;
-      setCountdown(t);
-      if (t <= 0) {
-        clearInterval(iv);
-        if (!adHandled) {
-          adHandled = true;
-          setPhase('done');
-        }
-      }
-    }, 1000);
+    if (typeof window.adBreak !== 'function') {
+      window.adsbygoogle = window.adsbygoogle || [];
+      window.adBreak = window.adConfig = function (o) {
+        window.adsbygoogle.push(o);
+      };
+    }
 
-    // Also try real Google H5 rewarded ad — if it fires, it takes over
     if (typeof window.adBreak === 'function') {
       window.adBreak({
         type: 'reward',
         name: 'extra-cup',
-        beforeReward: (showAdFn) => {
-          showAdFn();
-        },
+        beforeReward: (showAdFn) => { showAdFn(); },
         adDismissed: () => {
-          clearInterval(iv);
-          if (!adHandled) {
-            adHandled = true;
-            setPhase('error');
-          }
+          if (!adHandled) { adHandled = true; setPhase('error'); setErrorMsg('Watch the full ad to earn your cup.'); }
         },
         adViewed: () => {
-          clearInterval(iv);
-          if (!adHandled) {
+          if (!adHandled) { adHandled = true; setPhase('done'); }
+        },
+        adBreakDone: (placementInfo) => {
+          if (!adHandled && placementInfo?.breakStatus === 'notReady') {
             adHandled = true;
-            setPhase('done');
+            setPhase('unavailable');
+            setErrorMsg('No ad available right now. Try again later.');
           }
         },
       });
+    } else {
+      // No ad API at all — give cup anyway in dev/test
+      setTimeout(() => { if (!adHandled) { adHandled = true; setPhase('done'); } }, 1000);
     }
   };
 
@@ -85,14 +136,19 @@ export default function AdModal({ onEarn, onClose }) {
           </>
         )}
 
+        {phase === 'loading' && (
+          <>
+            <div className="text-5xl mb-4 animate-pulse">📡</div>
+            <h3 className="font-pixel text-sm text-foreground mb-2">Loading Ad...</h3>
+            <p className="text-muted-foreground text-xs mt-4">Just a moment…</p>
+          </>
+        )}
+
         {phase === 'watching' && (
           <>
-            <div className="text-5xl mb-4">⏳</div>
-            <h3 className="font-pixel text-sm text-foreground mb-2">Ad Playing...</h3>
-            <div className="w-16 h-16 rounded-full border-4 border-primary flex items-center justify-center mx-auto mt-4">
-              <span className="font-pixel text-xl text-primary">{countdown || '▶'}</span>
-            </div>
-            <p className="text-muted-foreground text-xs mt-4">Please wait…</p>
+            <div className="text-5xl mb-4">▶️</div>
+            <h3 className="font-pixel text-sm text-foreground mb-2">Ad Playing…</h3>
+            <p className="text-muted-foreground text-xs mt-4">Watch the full ad to earn your cup</p>
           </>
         )}
 
@@ -114,11 +170,22 @@ export default function AdModal({ onEarn, onClose }) {
           </>
         )}
 
+        {phase === 'unavailable' && (
+          <>
+            <div className="text-5xl mb-4">📭</div>
+            <h3 className="font-pixel text-sm text-foreground mb-2">No Ad Available</h3>
+            <p className="text-muted-foreground text-xs mb-6">{errorMsg}</p>
+            <Button variant="outline" onClick={onClose} className="w-full text-xs">
+              <X className="w-3 h-3 mr-1" /> Close
+            </Button>
+          </>
+        )}
+
         {phase === 'error' && (
           <>
             <div className="text-5xl mb-4">😔</div>
-            <h3 className="font-pixel text-sm text-foreground mb-2">Ad not completed</h3>
-            <p className="text-muted-foreground text-xs mb-6">Watch the full ad to earn your cup.</p>
+            <h3 className="font-pixel text-sm text-foreground mb-2">Ad Not Completed</h3>
+            <p className="text-muted-foreground text-xs mb-6">{errorMsg || 'Watch the full ad to earn your cup.'}</p>
             <div className="flex gap-3">
               <Button variant="outline" onClick={onClose} className="flex-1 text-xs">
                 <X className="w-3 h-3 mr-1" /> Close
