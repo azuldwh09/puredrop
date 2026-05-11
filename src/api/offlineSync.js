@@ -3,7 +3,6 @@ import { Network } from '@capacitor/network';
 
 const BASE_URL = 'https://pure-rain-catch.base44.app';
 
-// Keys for local storage
 const KEYS = {
   PLAYER_PROFILE: 'puredrop_player_profile',
   LEVEL_SCORES: 'puredrop_level_scores',
@@ -11,35 +10,29 @@ const KEYS = {
   LEADERBOARD: 'puredrop_leaderboard',
 };
 
-// Save data locally
 export async function saveLocal(key, data) {
   await Preferences.set({ key, value: JSON.stringify(data) });
 }
 
-// Load data locally
 export async function loadLocal(key) {
   const { value } = await Preferences.get({ key });
   return value ? JSON.parse(value) : null;
 }
 
-// Check network status
 export async function isOnline() {
   const status = await Network.getStatus();
   return status.connected;
 }
 
-// Queue an action for sync when back online
 export async function queueSync(action) {
   const existing = await loadLocal(KEYS.PENDING_SYNC) || [];
   existing.push({ ...action, timestamp: Date.now() });
   await saveLocal(KEYS.PENDING_SYNC, existing);
 }
 
-// Flush pending sync queue to server
 export async function flushSyncQueue(authToken) {
   const online = await isOnline();
   if (!online) return;
-
   const pending = await loadLocal(KEYS.PENDING_SYNC) || [];
   if (pending.length === 0) return;
 
@@ -48,10 +41,7 @@ export async function flushSyncQueue(authToken) {
     try {
       const res = await fetch(`${BASE_URL}/api/entities/${action.entity}`, {
         method: action.method || 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(action.data),
       });
       if (!res.ok) failed.push(action);
@@ -59,30 +49,30 @@ export async function flushSyncQueue(authToken) {
       failed.push(action);
     }
   }
-
   await saveLocal(KEYS.PENDING_SYNC, failed);
-  console.log(`Synced ${pending.length - failed.length} actions, ${failed.length} failed.`);
+  console.log(`[PureDrop] Synced ${pending.length - failed.length} queued actions, ${failed.length} failed.`);
 }
 
-// Save player profile locally (and sync if online)
-export async function savePlayerProfile(profile, authToken) {
-  await saveLocal(KEYS.PLAYER_PROFILE, profile);
+// Save/sync PlayerProfile — all fields matching Base44 entity
+export async function savePlayerProfile(profileRecord, authToken) {
+  await saveLocal(KEYS.PLAYER_PROFILE, profileRecord);
   const online = await isOnline();
   if (online) {
     await fetch(`${BASE_URL}/api/entities/PlayerProfile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(profile),
-    }).catch(() => queueSync({ entity: 'PlayerProfile', method: 'POST', data: profile }));
+      body: JSON.stringify(profileRecord),
+    }).catch(() => queueSync({ entity: 'PlayerProfile', method: 'POST', data: profileRecord }));
   } else {
-    await queueSync({ entity: 'PlayerProfile', method: 'POST', data: profile });
+    await queueSync({ entity: 'PlayerProfile', method: 'POST', data: profileRecord });
   }
 }
 
-// Save level score locally (and sync if online)
-export async function saveLevelScore(score, authToken) {
+// Save/sync LevelScore — matches Base44 LevelScore entity
+export async function saveLevelScore(scoreRecord, authToken) {
+  // scoreRecord: { user_email, level, score, purity, win, stars, accuracy }
   const existing = await loadLocal(KEYS.LEVEL_SCORES) || [];
-  existing.push(score);
+  existing.push({ ...scoreRecord, saved_at: Date.now() });
   await saveLocal(KEYS.LEVEL_SCORES, existing);
 
   const online = await isOnline();
@@ -90,19 +80,32 @@ export async function saveLevelScore(score, authToken) {
     await fetch(`${BASE_URL}/api/entities/LevelScore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(score),
-    }).catch(() => queueSync({ entity: 'LevelScore', method: 'POST', data: score }));
+      body: JSON.stringify(scoreRecord),
+    }).catch(() => queueSync({ entity: 'LevelScore', method: 'POST', data: scoreRecord }));
   } else {
-    await queueSync({ entity: 'LevelScore', method: 'POST', data: score });
+    await queueSync({ entity: 'LevelScore', method: 'POST', data: scoreRecord });
   }
 }
 
-// Load player profile (local first, then remote)
+// Update Leaderboard entry — matches Base44 Leaderboard entity
+export async function updateLeaderboard(entry, authToken) {
+  // entry: { user_email, display_name, level, score, purity }
+  const online = await isOnline();
+  if (online) {
+    await fetch(`${BASE_URL}/api/entities/Leaderboard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(entry),
+    }).catch(() => queueSync({ entity: 'Leaderboard', method: 'POST', data: entry }));
+  } else {
+    await queueSync({ entity: 'Leaderboard', method: 'POST', data: entry });
+  }
+}
+
 export async function getPlayerProfile(authToken) {
   const local = await loadLocal(KEYS.PLAYER_PROFILE);
   const online = await isOnline();
   if (!online) return local;
-
   try {
     const res = await fetch(`${BASE_URL}/api/entities/PlayerProfile`, {
       headers: { Authorization: `Bearer ${authToken}` },
@@ -115,12 +118,10 @@ export async function getPlayerProfile(authToken) {
   }
 }
 
-// Load leaderboard (local cache fallback)
 export async function getLeaderboard(authToken) {
   const local = await loadLocal(KEYS.LEADERBOARD);
   const online = await isOnline();
   if (!online) return local || [];
-
   try {
     const res = await fetch(`${BASE_URL}/api/entities/Leaderboard`, {
       headers: { Authorization: `Bearer ${authToken}` },

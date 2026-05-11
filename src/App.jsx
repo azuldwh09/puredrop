@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from './store/gameStore';
-import { flushSyncQueue } from './api/offlineSync';
+import { flushSyncQueue, savePlayerProfile } from './api/offlineSync';
 import { useNetwork } from './hooks/useNetwork';
 import { OfflineBanner } from './components/OfflineBanner';
 import HomeScreen from './screens/HomeScreen';
@@ -8,6 +8,7 @@ import GameScreen from './screens/GameScreen';
 import ResultScreen from './screens/ResultScreen';
 import LeaderboardScreen from './screens/LeaderboardScreen';
 import SkinsScreen from './screens/SkinsScreen';
+import SettingsScreen from './screens/SettingsScreen';
 
 const SCREENS = {
   HOME: 'home',
@@ -15,12 +16,13 @@ const SCREENS = {
   RESULT: 'result',
   LEADERBOARD: 'leaderboard',
   SKINS: 'skins',
+  SETTINGS: 'settings',
 };
 
 export default function App() {
   const [screen, setScreen] = useState(SCREENS.HOME);
   const [gameResult, setGameResult] = useState(null);
-  const { startGame, currentLevel, highestLevel, authToken } = useGameStore();
+  const { startGame, currentLevel, highestLevel, authToken, toProfileRecord } = useGameStore();
   const { isOnline } = useNetwork();
 
   // Flush sync queue when connectivity returns
@@ -31,23 +33,26 @@ export default function App() {
   }, [isOnline, authToken]);
 
   const handlePlay = () => {
-    startGame(highestLevel);
-    setScreen(SCREENS.GAME);
+    const ok = startGame(highestLevel);
+    if (ok) setScreen(SCREENS.GAME);
   };
 
   const handleGameEnd = (result, score, purity, stars) => {
     setGameResult({ result, score, purity, stars });
+    // Sync profile after every game
+    const profile = toProfileRecord();
+    savePlayerProfile(profile, authToken);
     setScreen(SCREENS.RESULT);
   };
 
   const handleNext = () => {
-    startGame(currentLevel + 1);
-    setScreen(SCREENS.GAME);
+    const ok = startGame(currentLevel + 1);
+    if (ok) setScreen(SCREENS.GAME);
   };
 
   const handleRetry = () => {
-    startGame(currentLevel);
-    setScreen(SCREENS.GAME);
+    const ok = startGame(currentLevel);
+    if (ok) setScreen(SCREENS.GAME);
   };
 
   return (
@@ -59,6 +64,7 @@ export default function App() {
           onPlay={handlePlay}
           onLeaderboard={() => setScreen(SCREENS.LEADERBOARD)}
           onSkins={() => setScreen(SCREENS.SKINS)}
+          onSettings={() => setScreen(SCREENS.SETTINGS)}
         />
       )}
 
@@ -81,6 +87,10 @@ export default function App() {
 
       {screen === SCREENS.SKINS && (
         <SkinsScreen onBack={() => setScreen(SCREENS.HOME)} />
+      )}
+
+      {screen === SCREENS.SETTINGS && (
+        <SettingsScreen onBack={() => setScreen(SCREENS.HOME)} />
       )}
     </div>
   );
