@@ -1,4 +1,4 @@
-// Restored from backup — 2026-04-28
+// Restored from backup — 2026-04-28, updated for Capacitor mobile support
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
@@ -6,6 +6,14 @@ import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
 import { enableDemoMode, isDemoMode } from '@/lib/demoMode';
 
 const AuthContext = createContext();
+
+// Detect if running inside Capacitor (native mobile)
+const isNativeMobile = () => {
+  return typeof window !== 'undefined' && 
+    (window.Capacitor?.isNativePlatform?.() || 
+     window.location.href.startsWith('capacitor://') ||
+     window.location.href.startsWith('http://localhost') && window.Capacitor);
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -17,6 +25,14 @@ export const AuthProvider = ({ children }) => {
   const [appPublicSettings, setAppPublicSettings] = useState(null);
 
   useEffect(() => {
+    // On native mobile, immediately enable demo mode so user gets full cups
+    if (isNativeMobile()) {
+      enableDemoMode();
+      setIsLoadingAuth(false);
+      setIsLoadingPublicSettings(false);
+      setAuthChecked(true);
+      return;
+    }
     checkAppState();
   }, []);
 
@@ -104,6 +120,11 @@ export const AuthProvider = ({ children }) => {
   const logout = (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
+    // On native mobile, just re-enable demo mode instead of redirecting
+    if (isNativeMobile()) {
+      enableDemoMode();
+      return;
+    }
     if (shouldRedirect) {
       base44.auth.logout(window.location.href);
     } else {
@@ -112,6 +133,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const navigateToLogin = () => {
+    // On native mobile, open login in system browser with deep link callback
+    if (isNativeMobile()) {
+      const loginUrl = `https://pure-rain-catch.base44.app?redirect=puredrop://auth`;
+      window.open(loginUrl, '_system');
+      return;
+    }
     base44.auth.redirectToLogin(window.location.href);
   };
 
@@ -121,6 +148,7 @@ export const AuthProvider = ({ children }) => {
       authError, appPublicSettings, authChecked, logout, navigateToLogin,
       checkUserAuth, checkAppState,
       isOffline: false,
+      isNativeMobile: isNativeMobile(),
     }}>
       {children}
     </AuthContext.Provider>
