@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Trophy, User, Globe, RefreshCw, WifiOff } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
+import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
 import { isDemoMode } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 
@@ -66,7 +67,7 @@ export default function LeaderboardScreen() {
 
     if (!isLocal) {
       try {
-        const user = await base44.auth.me();
+        const user = await getCurrentFirebaseUser();
         setMyEmail(user?.email || null);
         const personal = await base44.entities.LevelScore.filter(
           { user_email: user.email }, '-score', 10
