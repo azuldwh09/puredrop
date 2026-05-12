@@ -1,7 +1,7 @@
 import { AdMob, RewardInterstitialAdPluginEvents } from '@capacitor-community/admob';
 
 const APP_ID = 'ca-app-pub-2912984715921362~2822387889';
-const NEW_CUP_AD_UNIT = 'ca-app-pub-2912984715921362/8687061841';
+const NEW_CUP_AD_UNIT = 'ca-app-pub-3940256099942544/5224354917';
 
 // Use Google's official test ad unit in dev to avoid policy violations
 const AD_UNIT_ID = import.meta.env.DEV
