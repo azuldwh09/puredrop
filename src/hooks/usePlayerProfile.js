@@ -1,5 +1,4 @@
-// Restored from backup — 2026-04-28
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { MAX_CUPS, REFILL_INTERVAL_MS } from '@/lib/cupSkins';
 import { getLevelConfig } from '@/lib/levelConfig';
@@ -12,38 +11,72 @@ export function computeStars(score, catchRate, win) {
   return 1;
 }
 
+const RETRY_DELAYS = [500, 1000, 2000, 3000]; // ms between retries
+
+async function getAuthUserWithRetry() {
+  let lastErr;
+  for (let i = 0; i <= RETRY_DELAYS.length; i++) {
+    try {
+      const user = await base44.auth.me();
+      if (user?.email) return user;
+    } catch (err) {
+      lastErr = err;
+    }
+    if (i < RETRY_DELAYS.length) {
+      await new Promise(r => setTimeout(r, RETRY_DELAYS[i]));
+    }
+  }
+  throw lastErr || new Error('Not authenticated');
+}
+
 export function usePlayerProfile() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const profileRef = useRef(null);
+
+  // Keep a ref in sync so callbacks always have the latest profile
+  useEffect(() => { profileRef.current = profile; }, [profile]);
 
   const loadProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
     if (isDemoMode()) {
       setProfile(getDemoProfile());
       setLoading(false);
       return;
     }
 
-    const user = await base44.auth.me();
-    const results = await base44.entities.PlayerProfile.filter({ user_email: user.email });
-    let p = results[0];
+    try {
+      // Retry auth.me() — Firebase session may not be flushed to Base44 yet
+      const user = await getAuthUserWithRetry();
 
-    if (!p) {
-      p = await base44.entities.PlayerProfile.create({
-        user_email: user.email,
-        cups: MAX_CUPS,
-        last_refill_time: new Date().toISOString(),
-        selected_cup_skin: 'classic',
-        highest_level: 1,
-        total_score: 0,
-        streak: 1,
-        last_play_date: new Date().toDateString(),
-      });
+      const results = await base44.entities.PlayerProfile.filter({ user_email: user.email });
+      let p = results[0];
+
+      if (!p) {
+        p = await base44.entities.PlayerProfile.create({
+          user_email: user.email,
+          cups: MAX_CUPS,
+          last_refill_time: new Date().toISOString(),
+          selected_cup_skin: 'classic',
+          highest_level: 1,
+          total_score: 0,
+          streak: 1,
+          last_play_date: new Date().toDateString(),
+        });
+      }
+
+      p = await autoRefill(p);
+      p = await updateStreak(p);
+      setProfile(p);
+    } catch (err) {
+      console.error('usePlayerProfile: failed to load profile', err);
+      setError(err?.message || 'Could not load profile');
+    } finally {
+      setLoading(false);
     }
-
-    p = await autoRefill(p);
-    p = await updateStreak(p);
-    setProfile(p);
-    setLoading(false);
   }, []);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
@@ -54,15 +87,15 @@ export function usePlayerProfile() {
     if (isNaN(last)) return p;
     const elapsed = now - last;
     const cupsToAdd = Math.floor(elapsed / REFILL_INTERVAL_MS);
-
     if (cupsToAdd > 0 && p.cups < MAX_CUPS) {
       const newCups = Math.min(MAX_CUPS, p.cups + cupsToAdd);
       const newLastRefill = new Date(last + cupsToAdd * REFILL_INTERVAL_MS).toISOString();
-      const updated = await base44.entities.PlayerProfile.update(p.id, {
-        cups: newCups,
-        last_refill_time: newLastRefill,
-      });
-      return updated;
+      try {
+        return await base44.entities.PlayerProfile.update(p.id, {
+          cups: newCups,
+          last_refill_time: newLastRefill,
+        });
+      } catch { return p; }
     }
     return p;
   };
@@ -72,55 +105,88 @@ export function usePlayerProfile() {
     if (p.last_play_date === today) return p;
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     const newStreak = p.last_play_date === yesterday ? (p.streak || 0) + 1 : 1;
-    const updated = await base44.entities.PlayerProfile.update(p.id, {
-      streak: newStreak,
-      last_play_date: today,
-    });
-    return updated;
+    try {
+      return await base44.entities.PlayerProfile.update(p.id, {
+        streak: newStreak,
+        last_play_date: today,
+      });
+    } catch { return p; }
   };
 
   const spendCup = useCallback(async () => {
-    if (!profile || profile.cups <= 0) return false;
-    const newCups = profile.cups - 1;
+    const p = profileRef.current;
+    if (!p || p.cups <= 0) return false;
+    const newCups = p.cups - 1;
     if (isDemoMode()) {
-      setProfile(updateDemoProfile({ cups: newCups }));
+      const updated = updateDemoProfile({ cups: newCups });
+      setProfile(updated);
       return true;
     }
-    const optimistic = { ...profile, cups: newCups };
-    setProfile(optimistic);
-    const updated = await base44.entities.PlayerProfile.update(profile.id, { cups: newCups });
-    setProfile(updated);
+    setProfile(prev => ({ ...prev, cups: newCups }));
+    try {
+      const updated = await base44.entities.PlayerProfile.update(p.id, { cups: newCups });
+      setProfile(updated);
+    } catch (err) {
+      console.error('spendCup failed:', err);
+      // Roll back optimistic update
+      setProfile(p);
+      return false;
+    }
     return true;
-  }, [profile]);
+  }, []);
 
   const addCup = useCallback(async (amount = 1) => {
-    if (!profile) return;
+    const p = profileRef.current;
+    if (!p) {
+      console.warn('addCup: profile not loaded yet — retrying in 1s');
+      // Retry once after a short delay (edge case: ad finishes before profile loads)
+      await new Promise(r => setTimeout(r, 1000));
+      const retryP = profileRef.current;
+      if (!retryP) {
+        console.error('addCup: profile still null after retry');
+        return;
+      }
+    }
+    const currentProfile = profileRef.current;
     const newCups = isDemoMode()
-      ? Math.min(DEMO_MAX_CUPS, profile.cups + amount)
-      : Math.min(MAX_CUPS + 2, profile.cups + amount);
+      ? Math.min(DEMO_MAX_CUPS, currentProfile.cups + amount)
+      : Math.min(MAX_CUPS + 2, currentProfile.cups + amount);
+
     if (isDemoMode()) {
       setProfile(updateDemoProfile({ cups: newCups }));
       return;
     }
+    // Optimistic update
     setProfile(prev => ({ ...prev, cups: newCups }));
-    const updated = await base44.entities.PlayerProfile.update(profile.id, { cups: newCups });
-    setProfile(updated);
-  }, [profile]);
+    try {
+      const updated = await base44.entities.PlayerProfile.update(currentProfile.id, { cups: newCups });
+      setProfile(updated);
+    } catch (err) {
+      console.error('addCup failed:', err);
+      setProfile(currentProfile); // rollback
+    }
+  }, []);
 
   const setSkin = useCallback(async (skinId) => {
-    if (!profile) return;
+    const p = profileRef.current;
+    if (!p) return;
     if (isDemoMode()) {
       setProfile(updateDemoProfile({ selected_cup_skin: skinId }));
       return;
     }
-    const updated = await base44.entities.PlayerProfile.update(profile.id, { selected_cup_skin: skinId });
-    setProfile(updated);
-  }, [profile]);
+    try {
+      const updated = await base44.entities.PlayerProfile.update(p.id, { selected_cup_skin: skinId });
+      setProfile(updated);
+    } catch (err) {
+      console.error('setSkin failed:', err);
+    }
+  }, []);
 
   const updateProgress = useCallback(async (level, score, win, catchRate = 0) => {
-    if (!profile) return;
-    const updates = { total_score: (profile.total_score || 0) + score };
-    if (win && level >= (profile.highest_level || 1)) {
+    const p = profileRef.current;
+    if (!p) return;
+    const updates = { total_score: (p.total_score || 0) + score };
+    if (win && level >= (p.highest_level || 1)) {
       const nextLevel = level + 1;
       updates.highest_level = nextLevel;
       updates.difficulty_tier = getLevelConfig(nextLevel).tier;
@@ -129,26 +195,32 @@ export function usePlayerProfile() {
       setProfile(updateDemoProfile(updates));
       return;
     }
-    const updated = await base44.entities.PlayerProfile.update(profile.id, updates);
-    setProfile(updated);
+    try {
+      const updated = await base44.entities.PlayerProfile.update(p.id, updates);
+      setProfile(updated);
 
-    const user = await base44.auth.me();
-    const stars = computeStars(score, catchRate, win);
-    await base44.entities.LevelScore.create({ user_email: user.email, level, score, win, stars, accuracy: catchRate });
-
-    if (win && !profile.hide_from_leaderboard) {
-      await base44.entities.Leaderboard.create({
-        user_email: user.email,
-        display_name: user.full_name || user.email.split('@')[0],
-        level,
-        score,
+      const user = await base44.auth.me();
+      const stars = computeStars(score, catchRate, win);
+      await base44.entities.LevelScore.create({
+        user_email: user.email, level, score, win, stars, accuracy: catchRate,
       });
-      const allEntries = await base44.entities.Leaderboard.list('-score', 200);
-      if (allEntries.length > 50) {
-        await Promise.all(allEntries.slice(50).map(e => base44.entities.Leaderboard.delete(e.id)));
+
+      if (win && !p.hide_from_leaderboard) {
+        await base44.entities.Leaderboard.create({
+          user_email: user.email,
+          display_name: user.full_name || user.email.split('@')[0],
+          level,
+          score,
+        });
+        const allEntries = await base44.entities.Leaderboard.list('-score', 200);
+        if (allEntries.length > 50) {
+          await Promise.all(allEntries.slice(50).map(e => base44.entities.Leaderboard.delete(e.id)));
+        }
       }
+    } catch (err) {
+      console.error('updateProgress failed:', err);
     }
-  }, [profile]);
+  }, []);
 
   const nextRefillIn = profile ? (() => {
     if (profile.cups >= MAX_CUPS) return null;
@@ -162,5 +234,5 @@ export function usePlayerProfile() {
     return `${h}h ${m}m ${s}s`;
   })() : null;
 
-  return { profile, loading, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload: loadProfile };
+  return { profile, loading, error, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload: loadProfile };
 }
