@@ -1,6 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Gamepad2, Palette, Trophy } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 const TABS = [
   { label: 'Play', icon: Gamepad2, path: '/', ariaLabel: 'Play game' },
@@ -12,17 +11,9 @@ export default function BottomNav() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
-  // Play tab is "active" for /, /customize, /play, /gameover
-  const isPlayTab = (path) => path === '/' && ['/', '/customize', '/play', '/gameover'].includes(pathname);
-
   const handleTabPress = (path) => {
-    const alreadyActive = pathname === path || isPlayTab(path);
-    if (alreadyActive) {
-      // Re-tapping active tab resets to its root
-      navigate(path, { replace: true });
-    } else {
-      navigate(path);
-    }
+    if (pathname === path) return;
+    navigate(path);
   };
 
   return (
@@ -42,17 +33,15 @@ export default function BottomNav() {
               aria-label={ariaLabel}
               aria-selected={active}
               onClick={() => handleTabPress(path)}
-              className={`relative flex flex-col items-center justify-center gap-1 select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset ${
+              className={`relative flex flex-col items-center justify-center gap-1 select-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset ${
                 active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
               }`}
               style={{ minWidth: 72, minHeight: 56, paddingLeft: 16, paddingRight: 16, paddingTop: 10, paddingBottom: 10 }}
             >
+              {/* Simple CSS highlight -- no framer-motion layoutId (layoutId causes
+                  AnimatePresence mode="wait" deadlock when screens unmount/remount) */}
               {active && (
-                <motion.div
-                  layoutId="tab-indicator"
-                  className="absolute inset-0 bg-primary/10 rounded-2xl"
-                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                />
+                <div className="absolute inset-0 bg-primary/10 rounded-2xl transition-opacity duration-150" />
               )}
               <Icon className="w-5 h-5 relative z-10" aria-hidden="true" />
               <span className="font-pixel text-[8px] relative z-10">{label}</span>

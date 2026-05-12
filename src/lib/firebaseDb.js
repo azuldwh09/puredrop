@@ -2,30 +2,26 @@
  * Firestore helpers -- replaces base44.entities.*
  * Collections: playerProfiles, levelScores, leaderboard
  *
- * Offline-first: all reads attempt cache first, then network.
- * Writes are queued by Firestore internally and synced when reconnected.
+ * Offline-first: all reads attempt Firestore cache first, then network with timeout.
+ * Writes are queued by Firestore internally and auto-synced when reconnected.
  */
 import { getFirestore } from '@/lib/firebaseAuth';
 import { MAX_CUPS } from '@/lib/cupSkins';
 
-// How long (ms) to wait for a Firestore network response before falling back to cache
-const FIRESTORE_TIMEOUT_MS = 4000;
+// How long (ms) to wait for a Firestore network response before falling back to local
+const FIRESTORE_TIMEOUT_MS = 2500;
 
-/**
- * Wraps a Firestore promise with a timeout.
- * If it times out, rejects with an error tagged offline=true.
- */
-function withTimeout(promise, ms = FIRESTORE_TIMEOUT_MS) {
+function withTimeout(promise, ms) {
+  var timeout = ms !== undefined ? ms : FIRESTORE_TIMEOUT_MS;
   return Promise.race([
     promise,
-    new Promise((_, reject) => {
-      const t = setTimeout(() => {
-        const e = new Error(`Firestore timed out after ${ms}ms (offline?)`);
+    new Promise(function(_, reject) {
+      var t = setTimeout(function() {
+        var e = new Error('Firestore timed out after ' + timeout + 'ms (offline?)');
         e.offline = true;
         reject(e);
-      }, ms);
-      // Make sure the timer doesn't keep Node alive in tests
-      if (t?.unref) t.unref();
+      }, timeout);
+      if (t && t.unref) t.unref();
     }),
   ]);
 }
@@ -33,37 +29,61 @@ function withTimeout(promise, ms = FIRESTORE_TIMEOUT_MS) {
 // -- PlayerProfile -----------------------------------------------------------
 
 export async function getOrCreateProfile(uid, email, displayName) {
-  const db = await getFirestore();
-  const { doc, getDoc, getDocFromCache, setDoc, serverTimestamp } = await import('firebase/firestore');
-  const ref = doc(db, 'playerProfiles', uid);
-
-  // 1. Try cache first (instant, works offline)
-  let snap = null;
+  var db;
   try {
-    snap = await getDocFromCache(ref);
-    if (snap.exists()) return { id: uid, ...snap.data() };
-  } catch {
-    // No cached version yet -- fall through to network
+    db = await getFirestore();
+  } catch (dbErr) {
+    // Firestore failed to initialize (e.g. no IndexedDB support) -- go straight to local
+    console.warn('[Firestore] init failed, using local profile:', dbErr && dbErr.message);
+    return buildLocalProfile(uid, email, displayName);
   }
 
-  // 2. Try network with a timeout
+  var firestoreModule;
   try {
-    snap = await withTimeout(getDoc(ref));
-    if (snap.exists()) return { id: uid, ...snap.data() };
-  } catch (err) {
-    if (err.offline) {
-      // Offline and no cache -- return a local-only profile so the game can start
+    firestoreModule = await import('firebase/firestore');
+  } catch (modErr) {
+    console.warn('[Firestore] module import failed:', modErr && modErr.message);
+    return buildLocalProfile(uid, email, displayName);
+  }
+
+  var doc = firestoreModule.doc;
+  var getDoc = firestoreModule.getDoc;
+  var getDocFromCache = firestoreModule.getDocFromCache;
+  var setDoc = firestoreModule.setDoc;
+  var serverTimestamp = firestoreModule.serverTimestamp;
+  var ref = doc(db, 'playerProfiles', uid);
+
+  // 1. Try Firestore cache first (instant, always works offline after first successful load)
+  try {
+    var cacheSnap = await getDocFromCache(ref);
+    if (cacheSnap.exists()) {
+      return { id: uid, ...cacheSnap.data() };
+    }
+  } catch (cacheErr) {
+    // Cache miss or not initialized -- fall through
+  }
+
+  // 2. Try network with a short timeout
+  try {
+    var netSnap = await withTimeout(getDoc(ref));
+    if (netSnap.exists()) {
+      return { id: uid, ...netSnap.data() };
+    }
+  } catch (netErr) {
+    if (netErr.offline) {
+      // Offline and no Firestore cache -- use localStorage if we have it
       console.warn('[Firestore] Offline: returning local profile for', uid);
       return buildLocalProfile(uid, email, displayName);
     }
-    throw err;
+    throw netErr;
   }
 
-  // 3. Profile doesn't exist yet -- create it (Firestore queues write if offline)
-  const profile = {
-    uid,
+  // 3. First time: profile does not exist -- create it
+  // Firestore will queue the write if offline and sync when reconnected
+  var newProfile = {
+    uid: uid,
     user_email: email,
-    display_name: displayName || email.split('@')[0],
+    display_name: displayName || (email ? email.split('@')[0] : 'Player'),
     cups: MAX_CUPS,
     last_refill_time: new Date().toISOString(),
     selected_cup_skin: 'classic',
@@ -75,24 +95,38 @@ export async function getOrCreateProfile(uid, email, displayName) {
     hide_from_leaderboard: false,
     created_at: serverTimestamp(),
   };
-  await setDoc(ref, profile);
-  return { id: uid, ...profile };
+  try {
+    await setDoc(ref, newProfile);
+  } catch (writeErr) {
+    // Offline write -- Firestore queues it. Return local profile so game starts.
+    if (writeErr && (writeErr.code === 'unavailable' || (writeErr.message && writeErr.message.includes('offline')))) {
+      var local = { id: uid, ...newProfile, _local: true };
+      setCachedProfileDirect(local);
+      return local;
+    }
+    throw writeErr;
+  }
+  return { id: uid, ...newProfile };
 }
 
 function buildLocalProfile(uid, email, displayName) {
-  // Read from localStorage if we previously cached it there
+  // Check localStorage first (written by setCachedProfile in usePlayerProfile)
   try {
-    const raw = localStorage.getItem('puredrop_profile');
+    var raw = localStorage.getItem('puredrop_profile');
     if (raw) {
-      const cached = JSON.parse(raw);
-      if (cached.uid === uid) return cached;
+      var cached = JSON.parse(raw);
+      // Only use it if it matches this user (uid check)
+      if (!cached.uid || cached.uid === uid) {
+        return { ...cached, uid: uid, id: uid, _local: true };
+      }
     }
-  } catch {}
+  } catch (e) {}
+
   return {
     id: uid,
-    uid,
+    uid: uid,
     user_email: email,
-    display_name: displayName || email.split('@')[0],
+    display_name: displayName || (email ? email.split('@')[0] : 'Player'),
     cups: MAX_CUPS,
     last_refill_time: new Date().toISOString(),
     selected_cup_skin: 'classic',
@@ -102,143 +136,170 @@ function buildLocalProfile(uid, email, displayName) {
     last_play_date: new Date().toDateString(),
     difficulty_tier: 1,
     hide_from_leaderboard: false,
-    _local: true, // flag so we can sync later
+    _local: true,
   };
 }
 
+function setCachedProfileDirect(p) {
+  try { localStorage.setItem('puredrop_profile', JSON.stringify(p)); } catch (e) {}
+}
+
 export async function updateProfile(uid, updates) {
-  // Always update localStorage cache immediately (works offline)
+  // Always persist to localStorage immediately (synchronous, works offline)
   try {
-    const raw = localStorage.getItem('puredrop_profile');
-    const cached = raw ? JSON.parse(raw) : { uid };
-    const merged = { ...cached, ...updates };
-    localStorage.setItem('puredrop_profile', JSON.stringify(merged));
-  } catch {}
-
-  const db = await getFirestore();
-  const { doc, updateDoc, getDoc, getDocFromCache } = await import('firebase/firestore');
-  const ref = doc(db, 'playerProfiles', uid);
-
-  // Fire the Firestore write (queued if offline, auto-synced when reconnected)
-  try {
-    await updateDoc(ref, updates);
-  } catch (err) {
-    // If offline, Firestore queues the write -- that's fine, return the merged local state
-    if (err?.code === 'unavailable' || err?.message?.includes('offline') || err?.message?.includes('Failed to get document because the client is offline')) {
-      const raw = localStorage.getItem('puredrop_profile');
-      return raw ? JSON.parse(raw) : { id: uid, uid, ...updates };
+    var raw = localStorage.getItem('puredrop_profile');
+    var cached = raw ? JSON.parse(raw) : { uid: uid };
+    var merged = Object.assign({}, cached, updates);
+    // Enforce cup cap on every write
+    if (typeof merged.cups === 'number' && merged.cups > MAX_CUPS) {
+      merged.cups = MAX_CUPS;
+      updates = Object.assign({}, updates, { cups: MAX_CUPS });
     }
-    throw err;
+    localStorage.setItem('puredrop_profile', JSON.stringify(merged));
+  } catch (e) {}
+
+  var db;
+  try { db = await getFirestore(); }
+  catch (e) {
+    var local = localStorage.getItem('puredrop_profile');
+    return local ? JSON.parse(local) : { id: uid, uid: uid, ...updates };
   }
 
-  // Try to read back from cache for instant return; fall back to network
+  var firestoreModule = await import('firebase/firestore');
+  var doc = firestoreModule.doc;
+  var updateDoc = firestoreModule.updateDoc;
+  var getDoc = firestoreModule.getDoc;
+  var getDocFromCache = firestoreModule.getDocFromCache;
+  var ref = doc(db, 'playerProfiles', uid);
+
+  // Fire the write (auto-queued offline by Firestore)
   try {
-    const snap = await getDocFromCache(ref);
-    if (snap.exists()) return { id: uid, ...snap.data() };
-  } catch {}
+    await updateDoc(ref, updates);
+  } catch (writeErr) {
+    var code = writeErr && writeErr.code;
+    var msg = writeErr && writeErr.message;
+    if (code === 'unavailable' || (msg && (msg.includes('offline') || msg.includes('client is offline')))) {
+      // Offline -- return the locally merged state
+      var localRaw = localStorage.getItem('puredrop_profile');
+      return localRaw ? JSON.parse(localRaw) : { id: uid, uid: uid, ...updates };
+    }
+    throw writeErr;
+  }
+
+  // Read back for fresh state: try cache first, then network
   try {
-    const snap = await withTimeout(getDoc(ref));
-    return { id: uid, ...snap.data() };
-  } catch {
-    const raw = localStorage.getItem('puredrop_profile');
-    return raw ? JSON.parse(raw) : { id: uid, uid, ...updates };
+    var cacheSnap = await getDocFromCache(ref);
+    if (cacheSnap.exists()) return { id: uid, ...cacheSnap.data() };
+  } catch (e) {}
+  try {
+    var netSnap = await withTimeout(getDoc(ref));
+    return { id: uid, ...netSnap.data() };
+  } catch (e) {
+    var fallbackRaw = localStorage.getItem('puredrop_profile');
+    return fallbackRaw ? JSON.parse(fallbackRaw) : { id: uid, uid: uid, ...updates };
   }
 }
 
 export async function getProfile(uid) {
-  const db = await getFirestore();
-  const { doc, getDocFromCache, getDoc } = await import('firebase/firestore');
-  const ref = doc(db, 'playerProfiles', uid);
+  var db;
+  try { db = await getFirestore(); } catch (e) { return null; }
+  var { doc, getDocFromCache, getDoc } = await import('firebase/firestore');
+  var ref = doc(db, 'playerProfiles', uid);
   try {
-    const snap = await getDocFromCache(ref);
-    if (snap.exists()) return { id: uid, ...snap.data() };
-  } catch {}
+    var cacheSnap = await getDocFromCache(ref);
+    if (cacheSnap.exists()) return { id: uid, ...cacheSnap.data() };
+  } catch (e) {}
   try {
-    const snap = await withTimeout(getDoc(ref));
-    if (!snap.exists()) return null;
-    return { id: uid, ...snap.data() };
-  } catch {
+    var netSnap = await withTimeout(getDoc(ref));
+    if (!netSnap.exists()) return null;
+    return { id: uid, ...netSnap.data() };
+  } catch (e) {
     return null;
   }
 }
 
 export async function deleteProfile(uid) {
-  const db = await getFirestore();
-  const { doc, deleteDoc } = await import('firebase/firestore');
+  var db = await getFirestore();
+  var { doc, deleteDoc } = await import('firebase/firestore');
   await deleteDoc(doc(db, 'playerProfiles', uid));
 }
 
 // -- LevelScore --------------------------------------------------------------
 
 export async function saveLevelScore(uid, email, level, score, win, stars, accuracy) {
-  const db = await getFirestore();
-  const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+  var db;
+  try { db = await getFirestore(); } catch (e) { return; }
+  var { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
   try {
     await addDoc(collection(db, 'levelScores'), {
-      uid, user_email: email, level, score, win, stars, accuracy,
+      uid: uid, user_email: email, level: level, score: score,
+      win: win, stars: stars, accuracy: accuracy,
       created_at: serverTimestamp(),
     });
   } catch (err) {
-    // Offline -- queued by Firestore automatically
-    console.warn('[Firestore] saveLevelScore offline, will sync later', err?.code);
+    console.warn('[Firestore] saveLevelScore offline, will sync later:', err && err.code);
   }
 }
 
 // -- Leaderboard -------------------------------------------------------------
 
 export async function saveLeaderboardEntry(uid, email, displayName, level, score) {
-  const db = await getFirestore();
-  const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+  var db;
+  try { db = await getFirestore(); } catch (e) { return; }
+  var { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
   try {
     await addDoc(collection(db, 'leaderboard'), {
-      uid, user_email: email, display_name: displayName, level, score,
+      uid: uid, user_email: email, display_name: displayName,
+      level: level, score: score,
       created_at: serverTimestamp(),
     });
   } catch (err) {
-    console.warn('[Firestore] saveLeaderboardEntry offline, will sync later', err?.code);
+    console.warn('[Firestore] saveLeaderboardEntry offline, will sync later:', err && err.code);
   }
 }
 
-export async function getLeaderboard(limitCount = 50) {
-  const db = await getFirestore();
-  const { collection, query, orderBy, limit, getDocs, getDocsFromCache } = await import('firebase/firestore');
-  const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(limitCount));
+export async function getLeaderboard(limitCount) {
+  var limit = limitCount !== undefined ? limitCount : 50;
+  var db;
+  try { db = await getFirestore(); } catch (e) { return []; }
+  var { collection, query, orderBy, limit: _limit, getDocs, getDocsFromCache } = await import('firebase/firestore');
+  var q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), _limit(limit));
 
-  // Try cache first
   try {
-    const snap = await getDocsFromCache(q);
-    if (!snap.empty) return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch {}
+    var cacheSnap = await getDocsFromCache(q);
+    if (!cacheSnap.empty) return cacheSnap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
+  } catch (e) {}
 
-  // Network with timeout
   try {
-    const snap = await withTimeout(getDocs(q));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch {
+    var netSnap = await withTimeout(getDocs(q));
+    return netSnap.docs.map(function(d) { return { id: d.id, ...d.data() }; });
+  } catch (e) {
     return [];
   }
 }
 
 export async function removeLeaderboardEntriesForUser(uid) {
-  const db = await getFirestore();
-  const { collection, query, where, getDocs, deleteDoc, doc } = await import('firebase/firestore');
+  var db;
+  try { db = await getFirestore(); } catch (e) { return; }
+  var { collection, query, where, getDocs, deleteDoc, doc } = await import('firebase/firestore');
   try {
-    const q = query(collection(db, 'leaderboard'), where('uid', '==', uid));
-    const snap = await withTimeout(getDocs(q));
-    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'leaderboard', d.id))));
+    var q = query(collection(db, 'leaderboard'), where('uid', '==', uid));
+    var snap = await withTimeout(getDocs(q));
+    await Promise.all(snap.docs.map(function(d) { return deleteDoc(doc(db, 'leaderboard', d.id)); }));
   } catch (err) {
-    console.warn('[Firestore] removeLeaderboardEntriesForUser failed', err?.code);
+    console.warn('[Firestore] removeLeaderboardEntriesForUser failed:', err && err.code);
   }
 }
 
 export async function deleteLevelScoresForUser(uid) {
-  const db = await getFirestore();
-  const { collection, query, where, getDocs, deleteDoc, doc } = await import('firebase/firestore');
+  var db;
+  try { db = await getFirestore(); } catch (e) { return; }
+  var { collection, query, where, getDocs, deleteDoc, doc } = await import('firebase/firestore');
   try {
-    const q = query(collection(db, 'levelScores'), where('uid', '==', uid));
-    const snap = await withTimeout(getDocs(q));
-    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'levelScores', d.id))));
+    var q = query(collection(db, 'levelScores'), where('uid', '==', uid));
+    var snap = await withTimeout(getDocs(q));
+    await Promise.all(snap.docs.map(function(d) { return deleteDoc(doc(db, 'levelScores', d.id)); }));
   } catch (err) {
-    console.warn('[Firestore] deleteLevelScoresForUser failed', err?.code);
+    console.warn('[Firestore] deleteLevelScoresForUser failed:', err && err.code);
   }
 }

@@ -4,8 +4,8 @@ import { getLevelConfig } from '@/lib/levelConfig';
 import { isDemoMode, getDemoProfile, updateDemoProfile, DEMO_MAX_CUPS } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
 import {
-  getOrCreateProfile, updateProfile, getProfile,
-  saveLevelScore, saveLeaderboardEntry, removeLeaderboardEntriesForUser,
+  getOrCreateProfile, updateProfile,
+  saveLevelScore, saveLeaderboardEntry,
 } from '@/lib/firebaseDb';
 
 const PROFILE_CACHE_KEY = 'puredrop_profile';
@@ -30,16 +30,17 @@ export function usePlayerProfile() {
   const [error, setError] = useState(null);
   const profileRef = useRef(null);
 
-  // Use the already-resolved user from AuthContext.
-  // This avoids a redundant Firebase Auth lookup that can race or fail independently
-  // on Android WebView where IndexedDB origin isolation may differ.
-  const { user: authUser } = useAuth();
+  // Pull auth state from AuthContext -- single source of truth for the current user.
+  // We wait for isLoadingAuth===false before attempting any profile load, so we
+  // never hit the race where loadProfile runs before Firebase has restored the session.
+  const { user: authUser, isLoadingAuth } = useAuth();
   const authUserRef = useRef(authUser);
   useEffect(() => { authUserRef.current = authUser; }, [authUser]);
 
   useEffect(() => { profileRef.current = profile; }, [profile]);
 
-  const loadProfile = useCallback(async () => {
+  // Core profile loader. Only called AFTER auth has settled (isLoadingAuth===false).
+  const loadProfile = useCallback(async (user) => {
     setLoading(true);
     setError(null);
 
@@ -49,61 +50,72 @@ export function usePlayerProfile() {
       return;
     }
 
-    // Show cached profile immediately so the game does not block on network
-    const cached = getCachedProfile();
-    if (cached) {
-      setProfile(cached);
+    // If no user at all, nothing to load (App.jsx will show SignInScreen)
+    if (!user) {
       setLoading(false);
+      return;
     }
 
-    try {
-      // Use the user already confirmed by AuthContext -- no redundant Firebase lookup
-      const user = authUserRef.current;
-      if (!user) {
-        if (!cached) setError('Not authenticated');
-        setLoading(false);
-        return;
-      }
+    // Show cached profile instantly so the UI isn't blank while we fetch
+    const cached = getCachedProfile();
+    if (cached && cached.uid === user.uid) {
+      setProfile(cached);
+      setLoading(false); // unblock UI immediately
+    }
 
+    // Fetch from Firestore (works offline via Firestore's own cache+IndexedDB)
+    try {
       let p = await getOrCreateProfile(user.uid, user.email, user.displayName);
       p = await autoRefill(p, user.uid);
       p = await updateStreak(p, user.uid);
       setCachedProfile(p);
       setProfile(p);
     } catch (err) {
-      console.error('usePlayerProfile: load failed', err);
-      if (!cached) setError((err && err.message) || 'Could not load profile');
+      console.error('[Profile] load failed:', err);
+      // Only show error if we have no cached fallback
+      const current = profileRef.current;
+      if (!current) setError((err && err.message) || 'Could not load profile');
     } finally {
       setLoading(false);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // authUserRef is a ref -- intentionally excluded from deps
+  }, []); // no deps -- uses args, not closures over state
 
-  // Load on mount
-  useEffect(() => { loadProfile(); }, [loadProfile]);
-
-  // Re-load whenever the auth user arrives or changes.
-  // This handles the common case where usePlayerProfile mounts a few ms before
-  // AuthContext has finished restoring the Firebase session from IndexedDB.
-  const prevAuthUserRef = useRef(null);
+  // Main trigger: fire loadProfile exactly once after auth has settled.
+  // We track the last uid we loaded for to avoid double-loading.
+  const loadedForUidRef = useRef(null);
   useEffect(() => {
-    if (authUser && authUser !== prevAuthUserRef.current) {
-      prevAuthUserRef.current = authUser;
-      // Only re-fetch if we have no real profile yet (avoid redundant Firestore calls)
-      const p = profileRef.current;
-      if (!p || p._local) {
-        loadProfile();
-      }
-    }
-  }, [authUser, loadProfile]);
+    // Still waiting for Firebase to restore session -- do nothing yet
+    if (isLoadingAuth) return;
 
-  // When the device comes back online, re-sync if we were using a local-only profile
+    const uid = authUser ? authUser.uid : null;
+
+    // Demo mode: load immediately regardless of auth
+    if (isDemoMode()) {
+      loadProfile(null);
+      return;
+    }
+
+    // Auth settled with a user we haven't loaded for yet
+    if (uid && uid !== loadedForUidRef.current) {
+      loadedForUidRef.current = uid;
+      loadProfile(authUser);
+      return;
+    }
+
+    // Auth settled with no user -- not our job to handle (App.jsx shows sign-in screen)
+    if (!uid) {
+      setLoading(false);
+    }
+  }, [isLoadingAuth, authUser, loadProfile]);
+
+  // If device comes back online while profile was a local-only fallback, re-sync
   useEffect(() => {
     const handleOnline = () => {
       const p = profileRef.current;
-      if (p && p._local) {
-        console.log('[Profile] Back online -- syncing local profile to Firestore');
-        loadProfile();
+      const user = authUserRef.current;
+      if (p && p._local && user) {
+        console.log('[Profile] Back online -- syncing to Firestore');
+        loadProfile(user);
       }
     };
     window.addEventListener('online', handleOnline);
@@ -154,13 +166,14 @@ export function usePlayerProfile() {
     const n = amount !== undefined ? amount : 1;
     let p = profileRef.current;
     if (!p) {
-      await new Promise(r => setTimeout(r, 1000));
+      // Profile not ready yet -- wait up to 2s
+      await new Promise(r => setTimeout(r, 2000));
       p = profileRef.current;
-      if (!p) { console.error('addCup: profile still null'); return; }
+      if (!p) { console.error('addCup: profile still null after wait'); return; }
     }
-    const newCups = isDemoMode()
-      ? Math.min(DEMO_MAX_CUPS, p.cups + n)
-      : Math.min(MAX_CUPS + 2, p.cups + n);
+    // Hard cap at MAX_CUPS (5) -- no overflowing
+    const cap = isDemoMode() ? DEMO_MAX_CUPS : MAX_CUPS;
+    const newCups = Math.min(cap, p.cups + n);
 
     if (isDemoMode()) { setProfile(updateDemoProfile({ cups: newCups })); return; }
     setProfile(prev => ({ ...prev, cups: newCups }));
@@ -202,7 +215,6 @@ export function usePlayerProfile() {
       const updated = await updateProfile(p.id, updates);
       setProfile(updated);
 
-      // Use authUserRef to avoid a second Firebase lookup
       const user = authUserRef.current;
       if (!user) return;
       const stars = computeStars(score, rate, win);
@@ -229,5 +241,10 @@ export function usePlayerProfile() {
     return h + 'h ' + m + 'm ' + s + 's';
   })() : null;
 
-  return { profile, loading, error, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload: loadProfile };
+  const reload = useCallback(() => {
+    const user = authUserRef.current;
+    if (user) loadProfile(user);
+  }, [loadProfile]);
+
+  return { profile, loading, error, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload };
 }
