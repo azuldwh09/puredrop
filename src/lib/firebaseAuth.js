@@ -71,7 +71,9 @@ export async function signInWithGoogle() {
       }
 
       console.log('[Auth] Starting native Google Sign-In...');
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      // useCredentialManager:false forces the classic Google Sign-In intent
+      // which is more compatible across Android versions than the new Credential Manager API
+      const result = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false });
       console.log('[Auth] Native sign-in result — has credential:', !!result?.credential?.idToken);
 
       const idToken = result?.credential?.idToken;
