@@ -1,0 +1,5 @@
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ buildTypes
+-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
++            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
