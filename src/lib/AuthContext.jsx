@@ -133,13 +133,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const navigateToLogin = () => {
-    // On native mobile, open the Base44 app login in the system browser
-    // The app's web URL handles auth and sets the token in localStorage
+    // On native mobile, open the Base44 app login page directly in the system browser
     if (isNativeMobile()) {
-      // Redirect to the live web app — user logs in there, token is stored
-      // We use the web app URL so Base44 auth flow works end-to-end
-      const appWebUrl = 'https://pure-rain-catch.base44.app';
-      window.open(appWebUrl, '_system');
+      // /login is the Base44 app auth page — user signs in here, token stored in browser
+      const loginUrl = 'https://pure-rain-catch.base44.app/login';
+      window.open(loginUrl, '_system');
       return;
     }
     base44.auth.redirectToLogin(window.location.href);
