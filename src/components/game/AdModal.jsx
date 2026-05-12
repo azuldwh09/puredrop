@@ -8,7 +8,7 @@ const isNative = () =>
   typeof window !== 'undefined' &&
   window.Capacitor?.isNativePlatform?.();
 
-const AD_UNIT_ID = 'ca-app-pub-3940256099942544/5224354917';
+const AD_UNIT_ID = 'ca-app-pub-3940256099942544/5354046379';
 
 export default function AdModal({ onEarn, onClose }) {
   const [phase, setPhase] = useState('prompt'); // prompt | loading | watching | done | error | unavailable
