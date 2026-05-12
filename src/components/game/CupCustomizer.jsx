@@ -47,16 +47,10 @@ export default function CupCustomizer({ profile, onSelect, onClose }) {
                 style={{ background: skin.gradient || '#1e293b' }}
               >
                 <span className="text-3xl drop-shadow-lg z-10">{skin.emoji}</span>
-                {/* Shimmer overlay */}
+                {/* Shimmer overlay -- CSS animation (not framer-motion) to avoid blocking AnimatePresence exit */}
                 {isUnlocked && (
-                  <motion.div
-                    className="absolute inset-0"
-                    style={{
-                      background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)',
-                      backgroundSize: '200% 100%',
-                    }}
-                    animate={{ backgroundPosition: ['200% 0', '-200% 0'] }}
-                    transition={{ duration: 2.5, repeat: Infinity, ease: 'linear', repeatDelay: 1 }}
+                  <div
+                    className="absolute inset-0 skin-shimmer"
                   />
                 )}
               </div>

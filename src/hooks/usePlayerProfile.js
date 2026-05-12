@@ -8,6 +8,15 @@ import {
   saveLevelScore, saveLeaderboardEntry, removeLeaderboardEntriesForUser,
 } from '@/lib/firebaseDb';
 
+const PROFILE_CACHE_KEY = 'puredrop_profile';
+
+function getCachedProfile() {
+  try { return JSON.parse(localStorage.getItem(PROFILE_CACHE_KEY)); } catch { return null; }
+}
+function setCachedProfile(p) {
+  try { localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p)); } catch {}
+}
+
 export function computeStars(score, catchRate, win) {
   if (!win) return 0;
   if (score >= 2000 && catchRate >= 0.9) return 3;
@@ -33,23 +42,49 @@ export function usePlayerProfile() {
       return;
     }
 
+    // Show cached profile immediately so the game doesn't wait for network
+    const cached = getCachedProfile();
+    if (cached) {
+      setProfile(cached);
+      setLoading(false); // unblock UI right away
+    }
+
     try {
       const user = await getCurrentFirebaseUser();
-      if (!user) throw new Error('Not authenticated');
+      if (!user) {
+        if (!cached) setError('Not authenticated');
+        setLoading(false);
+        return;
+      }
 
       let p = await getOrCreateProfile(user.uid, user.email, user.displayName);
       p = await autoRefill(p, user.uid);
       p = await updateStreak(p, user.uid);
+      setCachedProfile(p); // persist for next cold start
       setProfile(p);
     } catch (err) {
       console.error('usePlayerProfile: load failed', err);
-      setError(err?.message || 'Could not load profile');
+      // If we already have cached data, silently stay on it -- don't show error
+      if (!cached) setError(err?.message || 'Could not load profile');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  // When the device comes back online, re-sync if we were using a local-only profile
+  useEffect(() => {
+    const handleOnline = () => {
+      const p = profileRef.current;
+      if (p?._local) {
+        console.log('[Profile] Back online -- syncing local profile to Firestore');
+        loadProfile();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [loadProfile]);
 
   const autoRefill = async (p, uid) => {
     const now = Date.now();
@@ -117,9 +152,14 @@ export function usePlayerProfile() {
     const p = profileRef.current;
     if (!p) return;
     if (isDemoMode()) { setProfile(updateDemoProfile({ selected_cup_skin: skinId })); return; }
+    // Optimistic update -- apply instantly, sync to Firestore in background
+    const optimistic = { ...p, selected_cup_skin: skinId };
+    setProfile(optimistic);
+    setCachedProfile(optimistic);
     try {
       const updated = await updateProfile(p.id, { selected_cup_skin: skinId });
       setProfile(updated);
+      setCachedProfile(updated);
     } catch (err) { console.error('setSkin failed:', err); }
   }, []);
 

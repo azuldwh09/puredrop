@@ -14,11 +14,19 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let unsubscribe = null;
 
-    // onAuthStateChanged fires immediately with the persisted user (or null)
-    // This is the ONLY reliable way to know auth state — no polling, no retries.
+    // Safety net: if Firebase doesn't respond within 6s (e.g. completely offline cold start),
+    // stop blocking the UI so the user can still play in local/demo mode.
+    const authTimeout = setTimeout(() => {
+      console.warn('[Auth] Firebase auth check timed out -- proceeding without session');
+      setIsLoadingAuth(false);
+    }, 6000);
+
+    // onAuthStateChanged fires immediately with the persisted user (or null) from IndexedDB.
+    // Even offline, this resolves quickly if the user has signed in before.
     onAuthStateChanged((firebaseUser) => {
+      clearTimeout(authTimeout);
       if (firebaseUser) {
-        disableDemoMode(); // always clear demo mode when a real user signs in
+        disableDemoMode();
         setUser({ email: firebaseUser.email, displayName: firebaseUser.displayName, uid: firebaseUser.uid });
         setIsAuthenticated(true);
         setAuthError(null);
@@ -31,7 +39,10 @@ export const AuthProvider = ({ children }) => {
       unsubscribe = unsub;
     });
 
-    return () => { if (unsubscribe) unsubscribe(); };
+    return () => {
+      clearTimeout(authTimeout);
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   const navigateToLogin = async () => {

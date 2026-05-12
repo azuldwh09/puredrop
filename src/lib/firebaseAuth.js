@@ -43,8 +43,24 @@ export async function getFirebaseAuth() {
 export async function getFirestore() {
   if (_db) return _db;
   const app = await getFirebaseApp();
-  const { getFirestore: _getFirestore } = await import('firebase/firestore');
-  _db = _getFirestore(app);
+  const {
+    initializeFirestore,
+    persistentLocalCache,
+    persistentMultipleTabManager,
+    getFirestore: _getFirestore,
+  } = await import('firebase/firestore');
+  try {
+    // Enable offline persistence so reads return cached data instantly
+    // even with no network connection (avoids hanging forever).
+    _db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    // Already initialized (e.g. hot-reload) — just get the existing instance
+    _db = _getFirestore(app);
+  }
   return _db;
 }
 

@@ -181,3 +181,14 @@
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+/* Cup skin shimmer animation (CSS instead of framer-motion to avoid blocking AnimatePresence) */
+@keyframes skin-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skin-shimmer {
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%);
+  background-size: 200% 100%;
+  animation: skin-shimmer 2.5s linear infinite;
+  animation-delay: 0.5s;
+}
