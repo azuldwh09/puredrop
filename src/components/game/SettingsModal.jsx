@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Trash2, AlertTriangle, LogOut, HelpCircle, EyeOff, Volume2, VolumeX, Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { base44 } from '@/api/base44Client';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
+import { getProfile, updateProfile, deleteProfile, removeLeaderboardEntriesForUser, deleteLevelScoresForUser } from '@/lib/firebaseDb';
 import TutorialModal from '@/components/game/TutorialModal';
 import { isDemoMode } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
@@ -46,10 +46,10 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
     if (isDemoMode()) return; // local mode — no server profile
     const load = async () => {
       const user = await getCurrentFirebaseUser();
-      const results = await base44.entities.PlayerProfile.filter({ user_email: user.email });
-      if (results[0]) {
-        setProfileId(results[0].id);
-        setHideFromLeaderboard(results[0].hide_from_leaderboard || false);
+      const p = await getProfile(user.uid);
+      if (p) {
+        setProfileId(user.uid);
+        setHideFromLeaderboard(p.hide_from_leaderboard || false);
       }
     };
     load();
@@ -71,11 +71,10 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
     if (!profileId) return;
     setHideFromLeaderboard(newVal);
     setConfirmLeaderboardOpt(false);
-    await base44.entities.PlayerProfile.update(profileId, { hide_from_leaderboard: newVal });
+    await updateProfile(profileId, { hide_from_leaderboard: newVal });
     if (newVal) {
       const user = await getCurrentFirebaseUser();
-      const existing = await base44.entities.Leaderboard.filter({ user_email: user.email });
-      await Promise.all(existing.map(e => base44.entities.Leaderboard.delete(e.id)));
+      await removeLeaderboardEntriesForUser(user.uid);
     }
   };
 
@@ -85,10 +84,9 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
     try {
       // Delete all player data for the current user
       const user = await getCurrentFirebaseUser();
-      const profiles = await base44.entities.PlayerProfile.filter({ user_email: user.email });
-      for (const p of profiles) await base44.entities.PlayerProfile.delete(p.id);
-      const scores = await base44.entities.LevelScore.filter({ user_email: user.email });
-      for (const s of scores) await base44.entities.LevelScore.delete(s.id);
+      await deleteProfile(user.uid);
+      await deleteLevelScoresForUser(user.uid);
+      await removeLeaderboardEntriesForUser(user.uid);
       logout();
     } catch (e) {
       setDeleting(false);
@@ -182,7 +180,7 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
                 onClick={async () => {
                   setRecalculating(true);
                   try {
-                    await base44.functions.invoke('recalculateStars', {});
+                    // recalculateStars not available with Firestore backend
                     setRecalcDone(true);
                   } finally {
                     setRecalculating(false);

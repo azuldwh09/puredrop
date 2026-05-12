@@ -1,11 +1,9 @@
 /**
- * Firebase Authentication for PureDrop
- * Native: @capacitor-firebase/authentication signs in at OS level,
- *         then we mirror that into the Firebase JS SDK so auth.currentUser persists.
- * Web: Firebase SDK popup (unchanged)
+ * Firebase core — auth + Firestore
+ * Single source of truth for the Firebase app instance.
  */
 
-const FIREBASE_CONFIG = {
+export const FIREBASE_CONFIG = {
   apiKey: "AIzaSyD-p9yO7iFUuPah2DsXMgY06kiIpB_oHl0",
   authDomain: "puredrop-730ca.firebaseapp.com",
   projectId: "puredrop-730ca",
@@ -15,39 +13,51 @@ const FIREBASE_CONFIG = {
   googleWebClientId: "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
 };
 
+let _app = null;
 let _auth = null;
+let _db = null;
 
-async function getFirebaseAuth() {
-  if (_auth) return _auth;
+export async function getFirebaseApp() {
+  if (_app) return _app;
   const { initializeApp, getApps } = await import('firebase/app');
+  _app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
+  return _app;
+}
+
+export async function getFirebaseAuth() {
+  if (_auth) return _auth;
+  const app = await getFirebaseApp();
   const { getAuth, indexedDBLocalPersistence, initializeAuth } = await import('firebase/auth');
-  let app;
-  if (getApps().length) {
-    app = getApps()[0];
+  try {
+    _auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
+  } catch {
     _auth = getAuth(app);
-  } else {
-    app = initializeApp(FIREBASE_CONFIG);
-    // Use indexedDB persistence so the session survives app restarts on native
-    _auth = initializeAuth(app, {
-      persistence: indexedDBLocalPersistence,
-    });
   }
   return _auth;
 }
 
+export async function getFirestore() {
+  if (_db) return _db;
+  const app = await getFirebaseApp();
+  const { getFirestore: _getFirestore } = await import('firebase/firestore');
+  _db = _getFirestore(app);
+  return _db;
+}
+
 const isNative = () =>
-  typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+  typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
 
 /**
  * Sign in with Google.
- * On native: triggers the OS Google account picker, then mirrors the
- * credential into the Firebase JS SDK so currentUser is set and persisted.
+ * Native: uses @capacitor-firebase/authentication (OS account picker),
+ *         then mirrors into JS SDK so currentUser is persisted.
+ * Web: Firebase popup.
  */
 export async function signInWithGoogle() {
+  const auth = await getFirebaseAuth();
+
   if (isNative()) {
     const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-
-    // Sign out of native layer first to always show account picker
     await FirebaseAuthentication.signOut().catch(() => {});
 
     const result = await FirebaseAuthentication.signInWithGoogle({
@@ -55,40 +65,24 @@ export async function signInWithGoogle() {
     });
 
     const idToken = result?.credential?.idToken;
-    if (!idToken) throw new Error('Google Sign-In cancelled or failed');
+    if (!idToken) throw new Error('Google Sign-In cancelled or no idToken returned');
 
-    // Mirror into the JS SDK so currentUser is set and persisted
-    const auth = await getFirebaseAuth();
     const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
     const credential = GoogleAuthProvider.credential(idToken);
     const jsResult = await signInWithCredential(auth, credential);
-
-    return {
-      idToken,
-      accessToken: result?.credential?.accessToken,
-      email: jsResult.user.email,
-      displayName: jsResult.user.displayName,
-      uid: jsResult.user.uid,
-    };
+    return jsResult.user;
   }
 
-  // Web fallback
-  const auth = await getFirebaseAuth();
+  // Web
   const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
   const provider = new GoogleAuthProvider();
   provider.addScope('email');
   const webResult = await signInWithPopup(auth, provider);
-  const idToken = await webResult.user.getIdToken();
-  return {
-    idToken,
-    email: webResult.user.email,
-    displayName: webResult.user.displayName,
-    uid: webResult.user.uid,
-  };
+  return webResult.user;
 }
 
 /**
- * Sign out — both native layer and JS SDK.
+ * Sign out from both native layer and JS SDK.
  */
 export async function firebaseSignOut() {
   try {
@@ -96,32 +90,38 @@ export async function firebaseSignOut() {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
       await FirebaseAuthentication.signOut().catch(() => {});
     }
-    // Always sign out of JS SDK so currentUser is cleared
     const auth = await getFirebaseAuth();
     const { signOut } = await import('firebase/auth');
     await signOut(auth);
   } catch (e) {
-    console.warn('Firebase sign out error:', e);
+    console.warn('firebaseSignOut error:', e);
   }
 }
 
 /**
- * Get current user from the JS SDK (works on both web and native).
- * Uses onAuthStateChanged to wait for the persisted session to restore.
+ * Returns a Promise that resolves to the current Firebase user (or null).
+ * Waits for auth state to be restored from persistence on cold start.
  */
 export async function getCurrentFirebaseUser() {
   try {
     const auth = await getFirebaseAuth();
-    // If already resolved, return immediately
     if (auth.currentUser) return auth.currentUser;
-    // Otherwise wait for auth state to be determined (handles app restart / cold start)
-    return await new Promise((resolve) => {
-      const unsubscribe = auth.onAuthStateChanged((user) => {
-        unsubscribe();
+    return new Promise((resolve) => {
+      const unsub = auth.onAuthStateChanged((user) => {
+        unsub();
         resolve(user);
       });
     });
   } catch {
     return null;
   }
+}
+
+/**
+ * Subscribe to auth state changes. Returns an unsubscribe function.
+ */
+export async function onAuthStateChanged(callback) {
+  const auth = await getFirebaseAuth();
+  const { onAuthStateChanged: _on } = await import('firebase/auth');
+  return _on(auth, callback);
 }

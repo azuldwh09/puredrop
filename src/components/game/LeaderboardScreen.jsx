@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Trophy, User, Globe, RefreshCw, WifiOff } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
+import { getLeaderboard } from '@/lib/firebaseDb';
 import { isDemoMode } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 
@@ -57,7 +57,7 @@ export default function LeaderboardScreen() {
     setError(null);
     try {
       // Fetch global scores — open to all players
-      const global = await base44.entities.Leaderboard.list('-score', 50);
+      const global = await getLeaderboard(50);
       setGlobalScores(Array.isArray(global) ? global : []);
     } catch (err) {
       console.error('Failed to load global leaderboard:', err);
@@ -69,9 +69,13 @@ export default function LeaderboardScreen() {
       try {
         const user = await getCurrentFirebaseUser();
         setMyEmail(user?.email || null);
-        const personal = await base44.entities.LevelScore.filter(
-          { user_email: user.email }, '-score', 10
-        );
+        // Personal scores — Firestore query
+        const { getFirestore } = await import('@/lib/firebaseAuth');
+        const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
+        const db = await getFirestore();
+        const q = query(collection(db, 'levelScores'), where('uid', '==', user.uid), orderBy('score', 'desc'), limit(10));
+        const snap = await getDocs(q);
+        const personal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setPersonalScores(Array.isArray(personal) ? personal : []);
       } catch (err) {
         console.error('Failed to load personal scores:', err);

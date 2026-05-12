@@ -1,72 +1,52 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { enableDemoMode, isDemoMode, disableDemoMode } from '@/lib/demoMode';
-import { signInWithGoogle, firebaseSignOut, getCurrentFirebaseUser } from '@/lib/firebaseAuth';
+import { signInWithGoogle, firebaseSignOut, onAuthStateChanged } from '@/lib/firebaseAuth';
 
 const AuthContext = createContext();
 
-const isNativePlatform = () =>
-  typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
-
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);           // { email, displayName, uid }
+  const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // Start true — wait for Firebase to restore session before rendering anything
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings] = useState(false); // not needed with Firebase
   const [authError, setAuthError] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    checkUserAuth();
-  }, []);
+    let unsubscribe = null;
 
-  const checkUserAuth = async () => {
-    try {
-      setIsLoadingAuth(true);
-      const firebaseUser = await getCurrentFirebaseUser();
+    // onAuthStateChanged fires immediately with the persisted user (or null)
+    // This is the ONLY reliable way to know auth state — no polling, no retries.
+    onAuthStateChanged((firebaseUser) => {
       if (firebaseUser) {
         setUser({ email: firebaseUser.email, displayName: firebaseUser.displayName, uid: firebaseUser.uid });
         setIsAuthenticated(true);
         setAuthError(null);
-        disableDemoMode();
       } else {
-        setIsAuthenticated(false);
         setUser(null);
+        setIsAuthenticated(false);
       }
-    } catch (err) {
-      console.error('checkUserAuth failed:', err);
-      setIsAuthenticated(false);
-      setUser(null);
-    } finally {
       setIsLoadingAuth(false);
-      setAuthChecked(true);
-    }
-  };
+    }).then((unsub) => {
+      unsubscribe = unsub;
+    });
+
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []);
 
   const navigateToLogin = async () => {
     try {
       setIsLoadingAuth(true);
-      const result = await signInWithGoogle();
-      setUser({ email: result.email, displayName: result.displayName, uid: result.uid });
-      setIsAuthenticated(true);
-      setAuthError(null);
-      disableDemoMode();
+      await signInWithGoogle();
+      // onAuthStateChanged above will fire and set the user automatically
     } catch (err) {
       console.error('Google Sign-In failed:', err);
       setAuthError({ type: 'auth_failed', message: err.message || 'Sign-in failed' });
-    } finally {
       setIsLoadingAuth(false);
     }
   };
 
   const logout = async () => {
-    try {
-      await firebaseSignOut();
-    } catch (e) {
-      console.warn('Firebase sign out error:', e);
-    }
-    setUser(null);
-    setIsAuthenticated(false);
-    setAuthError({ type: 'auth_required', message: 'Signed out' });
+    await firebaseSignOut();
+    // onAuthStateChanged will fire and clear user automatically
   };
 
   return (
@@ -74,15 +54,14 @@ export const AuthProvider = ({ children }) => {
       user,
       isAuthenticated,
       isLoadingAuth,
-      isLoadingPublicSettings,
+      isLoadingPublicSettings: false,
       authError,
       appPublicSettings: null,
-      authChecked,
+      authChecked: !isLoadingAuth,
       logout,
       navigateToLogin,
-      checkUserAuth,
-      checkAppState: checkUserAuth,
-      isNativeMobile: isNativePlatform(),
+      checkUserAuth: () => {},
+      checkAppState: () => {},
     }}>
       {children}
     </AuthContext.Provider>
