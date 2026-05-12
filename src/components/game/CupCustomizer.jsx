@@ -9,11 +9,12 @@ export default function CupCustomizer({ profile, onSelect, onClose }) {
   const selected = profile?.selected_cup_skin || 'classic';
   const isDemo = isDemoMode();
 
+  // NOTE: No motion.div wrapper here -- the parent Game.jsx already wraps this in
+  // a motion.div with enter/exit animations controlled by AnimatePresence.
+  // Adding a second nested motion.div with its own exit{} blocks the AnimatePresence
+  // exit sequence and causes a blank screen when navigating back to the main screen.
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
+    <div
       className="w-full max-w-sm mx-auto px-4 overflow-y-auto"
       style={{ maxHeight: '100dvh', paddingBottom: '5rem' }}
     >
@@ -47,11 +48,9 @@ export default function CupCustomizer({ profile, onSelect, onClose }) {
                 style={{ background: skin.gradient || '#1e293b' }}
               >
                 <span className="text-3xl drop-shadow-lg z-10">{skin.emoji}</span>
-                {/* Shimmer overlay -- CSS animation (not framer-motion) to avoid blocking AnimatePresence exit */}
+                {/* CSS shimmer -- NOT a framer-motion animation, avoids blocking AnimatePresence exit */}
                 {isUnlocked && (
-                  <div
-                    className="absolute inset-0 skin-shimmer"
-                  />
+                  <div className="absolute inset-0 skin-shimmer" />
                 )}
               </div>
 
@@ -72,7 +71,7 @@ export default function CupCustomizer({ profile, onSelect, onClose }) {
 
                 {isSelected && (
                   <span className="text-xs font-semibold" style={{ color: skin.rimColor || 'white' }}>
-                    ✓ Equipped
+                    Equipped
                   </span>
                 )}
               </div>
@@ -94,6 +93,6 @@ export default function CupCustomizer({ profile, onSelect, onClose }) {
       <Button onClick={onClose} className="w-full font-pixel text-xs">
         <ChevronRight className="w-4 h-4 mr-1" /> Back
       </Button>
-    </motion.div>
+    </div>
   );
 }

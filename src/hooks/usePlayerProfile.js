@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { MAX_CUPS, REFILL_INTERVAL_MS } from '@/lib/cupSkins';
 import { getLevelConfig } from '@/lib/levelConfig';
 import { isDemoMode, getDemoProfile, updateDemoProfile, DEMO_MAX_CUPS } from '@/lib/demoMode';
-import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
+import { useAuth } from '@/lib/AuthContext';
 import {
   getOrCreateProfile, updateProfile, getProfile,
   saveLevelScore, saveLeaderboardEntry, removeLeaderboardEntriesForUser,
@@ -30,6 +30,13 @@ export function usePlayerProfile() {
   const [error, setError] = useState(null);
   const profileRef = useRef(null);
 
+  // Use the already-resolved user from AuthContext.
+  // This avoids a redundant Firebase Auth lookup that can race or fail independently
+  // on Android WebView where IndexedDB origin isolation may differ.
+  const { user: authUser } = useAuth();
+  const authUserRef = useRef(authUser);
+  useEffect(() => { authUserRef.current = authUser; }, [authUser]);
+
   useEffect(() => { profileRef.current = profile; }, [profile]);
 
   const loadProfile = useCallback(async () => {
@@ -42,15 +49,16 @@ export function usePlayerProfile() {
       return;
     }
 
-    // Show cached profile immediately so the game doesn't wait for network
+    // Show cached profile immediately so the game does not block on network
     const cached = getCachedProfile();
     if (cached) {
       setProfile(cached);
-      setLoading(false); // unblock UI right away
+      setLoading(false);
     }
 
     try {
-      const user = await getCurrentFirebaseUser();
+      // Use the user already confirmed by AuthContext -- no redundant Firebase lookup
+      const user = authUserRef.current;
       if (!user) {
         if (!cached) setError('Not authenticated');
         setLoading(false);
@@ -60,24 +68,40 @@ export function usePlayerProfile() {
       let p = await getOrCreateProfile(user.uid, user.email, user.displayName);
       p = await autoRefill(p, user.uid);
       p = await updateStreak(p, user.uid);
-      setCachedProfile(p); // persist for next cold start
+      setCachedProfile(p);
       setProfile(p);
     } catch (err) {
       console.error('usePlayerProfile: load failed', err);
-      // If we already have cached data, silently stay on it -- don't show error
-      if (!cached) setError(err?.message || 'Could not load profile');
+      if (!cached) setError((err && err.message) || 'Could not load profile');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // authUserRef is a ref -- intentionally excluded from deps
 
+  // Load on mount
   useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  // Re-load whenever the auth user arrives or changes.
+  // This handles the common case where usePlayerProfile mounts a few ms before
+  // AuthContext has finished restoring the Firebase session from IndexedDB.
+  const prevAuthUserRef = useRef(null);
+  useEffect(() => {
+    if (authUser && authUser !== prevAuthUserRef.current) {
+      prevAuthUserRef.current = authUser;
+      // Only re-fetch if we have no real profile yet (avoid redundant Firestore calls)
+      const p = profileRef.current;
+      if (!p || p._local) {
+        loadProfile();
+      }
+    }
+  }, [authUser, loadProfile]);
 
   // When the device comes back online, re-sync if we were using a local-only profile
   useEffect(() => {
     const handleOnline = () => {
       const p = profileRef.current;
-      if (p?._local) {
+      if (p && p._local) {
         console.log('[Profile] Back online -- syncing local profile to Firestore');
         loadProfile();
       }
@@ -126,7 +150,8 @@ export function usePlayerProfile() {
     }
   }, []);
 
-  const addCup = useCallback(async (amount = 1) => {
+  const addCup = useCallback(async (amount) => {
+    const n = amount !== undefined ? amount : 1;
     let p = profileRef.current;
     if (!p) {
       await new Promise(r => setTimeout(r, 1000));
@@ -134,8 +159,8 @@ export function usePlayerProfile() {
       if (!p) { console.error('addCup: profile still null'); return; }
     }
     const newCups = isDemoMode()
-      ? Math.min(DEMO_MAX_CUPS, p.cups + amount)
-      : Math.min(MAX_CUPS + 2, p.cups + amount);
+      ? Math.min(DEMO_MAX_CUPS, p.cups + n)
+      : Math.min(MAX_CUPS + 2, p.cups + n);
 
     if (isDemoMode()) { setProfile(updateDemoProfile({ cups: newCups })); return; }
     setProfile(prev => ({ ...prev, cups: newCups }));
@@ -152,7 +177,6 @@ export function usePlayerProfile() {
     const p = profileRef.current;
     if (!p) return;
     if (isDemoMode()) { setProfile(updateDemoProfile({ selected_cup_skin: skinId })); return; }
-    // Optimistic update -- apply instantly, sync to Firestore in background
     const optimistic = { ...p, selected_cup_skin: skinId };
     setProfile(optimistic);
     setCachedProfile(optimistic);
@@ -163,7 +187,8 @@ export function usePlayerProfile() {
     } catch (err) { console.error('setSkin failed:', err); }
   }, []);
 
-  const updateProgress = useCallback(async (level, score, win, catchRate = 0) => {
+  const updateProgress = useCallback(async (level, score, win, catchRate) => {
+    const rate = catchRate !== undefined ? catchRate : 0;
     const p = profileRef.current;
     if (!p) return;
     const updates = { total_score: (p.total_score || 0) + score };
@@ -177,10 +202,11 @@ export function usePlayerProfile() {
       const updated = await updateProfile(p.id, updates);
       setProfile(updated);
 
-      const user = await getCurrentFirebaseUser();
+      // Use authUserRef to avoid a second Firebase lookup
+      const user = authUserRef.current;
       if (!user) return;
-      const stars = computeStars(score, catchRate, win);
-      await saveLevelScore(user.uid, user.email, level, score, win, stars, catchRate);
+      const stars = computeStars(score, rate, win);
+      await saveLevelScore(user.uid, user.email, level, score, win, stars, rate);
 
       if (win && !p.hide_from_leaderboard) {
         await saveLeaderboardEntry(
@@ -190,7 +216,7 @@ export function usePlayerProfile() {
         );
       }
     } catch (err) { console.error('updateProgress failed:', err); }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nextRefillIn = profile ? (() => {
     if (profile.cups >= MAX_CUPS) return null;
@@ -200,7 +226,7 @@ export function usePlayerProfile() {
     const h = Math.floor(diff / 3600000);
     const m = Math.floor((diff % 3600000) / 60000);
     const s = Math.floor((diff % 60000) / 1000);
-    return `${h}h ${m}m ${s}s`;
+    return h + 'h ' + m + 'm ' + s + 's';
   })() : null;
 
   return { profile, loading, error, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload: loadProfile };

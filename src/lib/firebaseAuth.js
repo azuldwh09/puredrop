@@ -1,5 +1,5 @@
 /**
- * Firebase core — auth + Firestore
+ * Firebase core -- auth + Firestore
  * Single source of truth for the Firebase app instance.
  */
 
@@ -9,13 +9,8 @@ export const FIREBASE_CONFIG = {
   projectId: "puredrop-730ca",
   storageBucket: "puredrop-730ca.firebasestorage.app",
   messagingSenderId: "216915385441",
-  // appId: Android App ID omitted — breaks WebView auth. Register a Web App in Firebase console if needed.
   googleWebClientId: "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
 };
-
-// ─── Web App ID ─────────────────────────────────────────────────────────────
-// To fix "auth/invalid-api-key" or similar: go to Firebase Console → Project Settings
-// → Add App → Web, copy the appId and add it above.
 
 let _app = null;
 let _auth = null;
@@ -46,20 +41,20 @@ export async function getFirestore() {
   const {
     initializeFirestore,
     persistentLocalCache,
-    persistentMultipleTabManager,
+    persistentSingleTabManager,
     getFirestore: _getFirestore,
   } = await import('firebase/firestore');
   try {
-    // Enable offline persistence so reads return cached data instantly
-    // even with no network connection (avoids hanging forever).
+    // Use singleTabManager -- multipleTabManager requires SharedWorker which
+    // is NOT available in Android WebView / Capacitor environments.
     _db = initializeFirestore(app, {
       localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
+        tabManager: persistentSingleTabManager({ forceOwnership: true }),
       }),
     });
-  } catch {
-    // Already initialized (e.g. hot-reload) — just get the existing instance
-    _db = _getFirestore(app);
+  } catch (e) {
+    console.warn('[Firestore] offline persistence unavailable:', e && (e.code || e.message));
+    try { _db = _getFirestore(app); } catch (_) { _db = _getFirestore(app); }
   }
   return _db;
 }
@@ -67,12 +62,6 @@ export async function getFirestore() {
 const isNative = () =>
   typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
 
-/**
- * Sign in with Google.
- * Native: uses @capacitor-firebase/authentication (OS account picker),
- *         then mirrors into JS SDK so currentUser is persisted.
- * Web: Firebase popup.
- */
 export async function signInWithGoogle() {
   const auth = await getFirebaseAuth();
 
@@ -80,39 +69,35 @@ export async function signInWithGoogle() {
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
 
-      // Only sign out if there's an existing native session (avoids clearing valid state)
       const current = await FirebaseAuthentication.getCurrentUser().catch(() => null);
-      if (current?.user) {
+      if (current && current.user) {
         await FirebaseAuthentication.signOut().catch(() => {});
       }
 
       console.log('[Auth] Starting native Google Sign-In...');
-      // useCredentialManager:false forces the classic Google Sign-In intent
-      // which is more compatible across Android versions than the new Credential Manager API
       const result = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false });
-      console.log('[Auth] Native sign-in result — has credential:', !!result?.credential?.idToken);
+      console.log('[Auth] Native sign-in result -- has idToken:', !!(result && result.credential && result.credential.idToken));
 
-      const idToken = result?.credential?.idToken;
+      const idToken = result && result.credential && result.credential.idToken;
       if (!idToken) {
-        throw new Error('Google Sign-In was cancelled or returned no token. Check that SHA-1 is registered in Firebase and google-services.json is up to date.');
+        throw new Error('Google Sign-In was cancelled or returned no token.');
       }
 
       const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
       const credential = GoogleAuthProvider.credential(idToken);
       const jsResult = await signInWithCredential(auth, credential);
-      console.log('[Auth] signInWithCredential OK, uid:', jsResult.user?.uid);
+      console.log('[Auth] signInWithCredential OK, uid:', jsResult.user && jsResult.user.uid);
       return jsResult.user;
     } catch (err) {
-      // Provide human-readable error messages for common failures
-      const code = err?.code || '';
-      const msg = err?.message || '';
+      const code = (err && err.code) || '';
+      const msg = (err && err.message) || '';
       let friendly = msg;
       if (code.includes('DEVELOPER_ERROR') || msg.includes('DEVELOPER_ERROR')) {
-        friendly = 'Config error: SHA-1 fingerprint missing or google-services.json is outdated. Re-download it from Firebase Console.';
+        friendly = 'Config error: SHA-1 fingerprint missing or google-services.json outdated.';
       } else if (code.includes('sign_in_cancelled') || code.includes('12501')) {
         friendly = 'Sign-in was cancelled.';
       } else if (code.includes('network_error') || code.includes('7')) {
-        friendly = 'Network error — check your internet connection.';
+        friendly = 'Network error -- check your internet connection.';
       }
       console.error('[Auth] Native sign-in failed:', code, msg);
       const error = new Error(friendly);
@@ -121,7 +106,6 @@ export async function signInWithGoogle() {
     }
   }
 
-  // Web (browser / dev mode)
   const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
   const provider = new GoogleAuthProvider();
   provider.addScope('email');
@@ -129,9 +113,6 @@ export async function signInWithGoogle() {
   return webResult.user;
 }
 
-/**
- * Sign out from both native layer and JS SDK.
- */
 export async function firebaseSignOut() {
   try {
     if (isNative()) {
@@ -146,10 +127,6 @@ export async function firebaseSignOut() {
   }
 }
 
-/**
- * Returns a Promise that resolves to the current Firebase user (or null).
- * Waits for auth state to be restored from persistence on cold start.
- */
 export async function getCurrentFirebaseUser() {
   try {
     const auth = await getFirebaseAuth();
@@ -165,9 +142,6 @@ export async function getCurrentFirebaseUser() {
   }
 }
 
-/**
- * Subscribe to auth state changes. Returns an unsubscribe function.
- */
 export async function onAuthStateChanged(callback) {
   const auth = await getFirebaseAuth();
   const { onAuthStateChanged: _on } = await import('firebase/auth');
