@@ -226,7 +226,7 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
               variant="outline"
               size="sm"
               className="w-full font-pixel text-xs"
-              onClick={() => isDemoMode() ? navigateToLogin() : logout(true)}
+              onClick={() => { if (isDemoMode()) { navigateToLogin(); } else { logout(); } }}
             >
               <LogOut className="w-3 h-3 mr-2" />
               {isDemoMode() ? 'Sign In / Create Account' : 'Sign Out'}

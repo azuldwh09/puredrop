@@ -9,7 +9,8 @@ export const FIREBASE_CONFIG = {
   projectId: "puredrop-730ca",
   storageBucket: "puredrop-730ca.firebasestorage.app",
   messagingSenderId: "216915385441",
-  appId: "1:216915385441:android:c8cd84f347bf1dcb739e20",
+  // NOTE: appId intentionally omitted — Android app ID breaks web/WebView auth.
+  // Add your Firebase Web App ID here if you register one in the Firebase console.
   googleWebClientId: "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
 };
 
@@ -57,20 +58,25 @@ export async function signInWithGoogle() {
   const auth = await getFirebaseAuth();
 
   if (isNative()) {
-    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-    await FirebaseAuthentication.signOut().catch(() => {});
+    try {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+      await FirebaseAuthentication.signOut().catch(() => {});
 
-    const result = await FirebaseAuthentication.signInWithGoogle({
-      customParameters: [{ key: 'client_id', value: FIREBASE_CONFIG.googleWebClientId }],
-    });
+      const result = await FirebaseAuthentication.signInWithGoogle();
+      console.log('[Auth] Native Google Sign-In result:', JSON.stringify(result?.credential ? 'has credential' : 'no credential'));
 
-    const idToken = result?.credential?.idToken;
-    if (!idToken) throw new Error('Google Sign-In cancelled or no idToken returned');
+      const idToken = result?.credential?.idToken;
+      if (!idToken) throw new Error('Google Sign-In cancelled or returned no token');
 
-    const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
-    const credential = GoogleAuthProvider.credential(idToken);
-    const jsResult = await signInWithCredential(auth, credential);
-    return jsResult.user;
+      const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
+      const credential = GoogleAuthProvider.credential(idToken);
+      const jsResult = await signInWithCredential(auth, credential);
+      console.log('[Auth] signInWithCredential success, uid:', jsResult.user?.uid);
+      return jsResult.user;
+    } catch (err) {
+      console.error('[Auth] Native sign-in error:', err?.code, err?.message);
+      throw err;
+    }
   }
 
   // Web

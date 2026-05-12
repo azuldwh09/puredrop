@@ -34,12 +34,14 @@ export const AuthProvider = ({ children }) => {
 
   const navigateToLogin = async () => {
     try {
+      setAuthError(null);
       setIsLoadingAuth(true);
       await signInWithGoogle();
       // onAuthStateChanged above will fire and set the user automatically
     } catch (err) {
-      console.error('Google Sign-In failed:', err);
-      setAuthError({ type: 'auth_failed', message: err.message || 'Sign-in failed' });
+      const msg = err?.code ? `${err.code}: ${err.message}` : (err?.message || 'Sign-in failed');
+      console.error('Google Sign-In failed:', msg);
+      setAuthError({ type: 'auth_failed', message: msg });
       setIsLoadingAuth(false);
     }
   };
