@@ -1,42 +1,72 @@
-# PureDrop - Android setup script (Windows PowerShell)
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\setup-android.ps1
+# PureDrop Android Setup Script
+# Usage: .\scripts\setup-android.ps1
+# Run after: git pull && npm install
 
-Write-Host "Installing dependencies..."
-npm install
+param([string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot))
 
-Write-Host "Building web assets for mobile..."
-npm run build:mobile
+Write-Host "=== PureDrop Android Setup ===" -ForegroundColor Cyan
+Set-Location $ProjectRoot
 
-Write-Host "Adding Android platform..."
-npx cap add android
+# 1. Build web assets
+Write-Host "`n[1/6] Building web assets..." -ForegroundColor Yellow
+npm run build
+if ($LASTEXITCODE -ne 0) { Write-Host "Build failed!" -ForegroundColor Red; exit 1 }
 
-Write-Host "Syncing Capacitor..."
-npx cap sync android
-
-Write-Host "Copying clean AndroidManifest.xml..."
-Copy-Item "android-patches\AndroidManifest.xml" "android\app\src\main\AndroidManifest.xml" -Force
-Write-Host "AndroidManifest.xml replaced"
-
-Write-Host "Fixing build.gradle proguard setting..."
-$gradlePath = "android\app\build.gradle"
-$content = Get-Content $gradlePath
-$content = $content -replace "proguard-android.txt", "proguard-android-optimize.txt"
-Set-Content $gradlePath $content
-Write-Host "build.gradle updated"
-
-Write-Host "Copying app icons..."
-$densities = @("mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi")
-foreach ($density in $densities) {
-    $src = "android-resources\$density"
-    $dest = "android\app\src\main\res\$density"
-    if (Test-Path $src) {
-        New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Copy-Item "$src\ic_launcher.png" "$dest\ic_launcher.png" -Force
-        Copy-Item "$src\ic_launcher_round.png" "$dest\ic_launcher_round.png" -Force
-        Write-Host "Copied $density icons"
-    }
+# 2. Copy google-services.json (Firebase)
+Write-Host "`n[2/6] Copying google-services.json..." -ForegroundColor Yellow
+$src = Join-Path $ProjectRoot "android-patches\google-services.json"
+$dst = Join-Path $ProjectRoot "android\app\google-services.json"
+if (Test-Path $src) {
+    Copy-Item $src $dst -Force
+    Write-Host "  ✓ google-services.json copied" -ForegroundColor Green
+} else {
+    Write-Host "  ✗ Not found: $src" -ForegroundColor Red
 }
 
-Write-Host "Android setup complete!"
-Write-Host "Run: npx cap open android"
-Write-Host "Then: Build > Clean Project > Build APK(s)"
+# 3. Copy AndroidManifest.xml
+Write-Host "`n[3/6] Applying AndroidManifest.xml..." -ForegroundColor Yellow
+$src = Join-Path $ProjectRoot "android-patches\AndroidManifest.xml"
+$dst = Join-Path $ProjectRoot "android\app\src\main\AndroidManifest.xml"
+if (Test-Path $src) {
+    Copy-Item $src $dst -Force
+    Write-Host "  ✓ AndroidManifest.xml applied" -ForegroundColor Green
+} else {
+    Write-Host "  ✗ Not found: $src" -ForegroundColor Red
+}
+
+# 4. Fix ProGuard in build.gradle
+Write-Host "`n[4/6] Fixing ProGuard config..." -ForegroundColor Yellow
+$gradle = Join-Path $ProjectRoot "android\app\build.gradle"
+if (Test-Path $gradle) {
+    $c = Get-Content $gradle -Raw
+    $c = $c -replace 'proguard-android\.txt', 'proguard-android-optimize.txt'
+    Set-Content $gradle $c -NoNewline
+    Write-Host "  ✓ proguard-android-optimize.txt set" -ForegroundColor Green
+}
+
+# 5. Deploy app icons
+Write-Host "`n[5/6] Deploying app icons..." -ForegroundColor Yellow
+$iconSrc = Join-Path $ProjectRoot "android-resources"
+$iconDst = Join-Path $ProjectRoot "android\app\src\main\res"
+if (Test-Path $iconSrc) {
+    foreach ($d in @("mipmap-mdpi","mipmap-hdpi","mipmap-xhdpi","mipmap-xxhdpi","mipmap-xxxhdpi")) {
+        $s = Join-Path $iconSrc $d
+        $t = Join-Path $iconDst $d
+        if (Test-Path $s) {
+            if (!(Test-Path $t)) { New-Item -ItemType Directory -Path $t | Out-Null }
+            Copy-Item "$s\*" $t -Force
+            Write-Host "  ✓ $d" -ForegroundColor Green
+        }
+    }
+} else {
+    Write-Host "  ! No android-resources folder — skipping icons" -ForegroundColor Yellow
+}
+
+# 6. Sync Capacitor
+Write-Host "`n[6/6] Syncing Capacitor..." -ForegroundColor Yellow
+npx cap sync android
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`n=== Done! Open Android Studio → Build → Build APK(s) ===" -ForegroundColor Green
+} else {
+    Write-Host "`nCapacitor sync had errors — check above" -ForegroundColor Red
+}
