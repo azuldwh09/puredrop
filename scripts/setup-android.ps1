@@ -32,7 +32,7 @@ if (Test-Path $src3) {
     Copy-Item $src3 $dst3 -Force
     Write-Host "  OK variables.gradle (rgcfaIncludeGoogle=true)" -ForegroundColor Green
 } else {
-    Write-Host "  MISSING: $src3 — Google Sign-In will NOT work without this!" -ForegroundColor Red
+    Write-Host "  MISSING: $src3 -- Google Sign-In will NOT work without this!" -ForegroundColor Red
 }
 
 Write-Host "`n[6/8] Applying AndroidManifest.xml..." -ForegroundColor Yellow
@@ -72,5 +72,5 @@ if (Test-Path $iconSrc) {
     Write-Host "  SKIP no android-resources folder" -ForegroundColor Yellow
 }
 
-Write-Host "`n=== Setup complete! Open Android Studio → Build → Clean Project → Run ===" -ForegroundColor Green
-Write-Host "IMPORTANT: If this is first run, do Build > Clean Project before running." -ForegroundColor Yellow
+Write-Host "`n=== Setup complete! Open Android Studio, then: Build > Clean Project > Run ===" -ForegroundColor Green
+Write-Host "IMPORTANT: Always do Build > Clean Project before running after setup." -ForegroundColor Yellow
