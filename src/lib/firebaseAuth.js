@@ -9,10 +9,13 @@ export const FIREBASE_CONFIG = {
   projectId: "puredrop-730ca",
   storageBucket: "puredrop-730ca.firebasestorage.app",
   messagingSenderId: "216915385441",
-  // NOTE: appId intentionally omitted — Android app ID breaks web/WebView auth.
-  // Add your Firebase Web App ID here if you register one in the Firebase console.
+  // appId: Android App ID omitted — breaks WebView auth. Register a Web App in Firebase console if needed.
   googleWebClientId: "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
 };
+
+// ─── Web App ID ─────────────────────────────────────────────────────────────
+// To fix "auth/invalid-api-key" or similar: go to Firebase Console → Project Settings
+// → Add App → Web, copy the appId and add it above.
 
 let _app = null;
 let _auth = null;
@@ -60,26 +63,47 @@ export async function signInWithGoogle() {
   if (isNative()) {
     try {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-      await FirebaseAuthentication.signOut().catch(() => {});
 
+      // Only sign out if there's an existing native session (avoids clearing valid state)
+      const current = await FirebaseAuthentication.getCurrentUser().catch(() => null);
+      if (current?.user) {
+        await FirebaseAuthentication.signOut().catch(() => {});
+      }
+
+      console.log('[Auth] Starting native Google Sign-In...');
       const result = await FirebaseAuthentication.signInWithGoogle();
-      console.log('[Auth] Native Google Sign-In result:', JSON.stringify(result?.credential ? 'has credential' : 'no credential'));
+      console.log('[Auth] Native sign-in result — has credential:', !!result?.credential?.idToken);
 
       const idToken = result?.credential?.idToken;
-      if (!idToken) throw new Error('Google Sign-In cancelled or returned no token');
+      if (!idToken) {
+        throw new Error('Google Sign-In was cancelled or returned no token. Check that SHA-1 is registered in Firebase and google-services.json is up to date.');
+      }
 
       const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth');
       const credential = GoogleAuthProvider.credential(idToken);
       const jsResult = await signInWithCredential(auth, credential);
-      console.log('[Auth] signInWithCredential success, uid:', jsResult.user?.uid);
+      console.log('[Auth] signInWithCredential OK, uid:', jsResult.user?.uid);
       return jsResult.user;
     } catch (err) {
-      console.error('[Auth] Native sign-in error:', err?.code, err?.message);
-      throw err;
+      // Provide human-readable error messages for common failures
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      let friendly = msg;
+      if (code.includes('DEVELOPER_ERROR') || msg.includes('DEVELOPER_ERROR')) {
+        friendly = 'Config error: SHA-1 fingerprint missing or google-services.json is outdated. Re-download it from Firebase Console.';
+      } else if (code.includes('sign_in_cancelled') || code.includes('12501')) {
+        friendly = 'Sign-in was cancelled.';
+      } else if (code.includes('network_error') || code.includes('7')) {
+        friendly = 'Network error — check your internet connection.';
+      }
+      console.error('[Auth] Native sign-in failed:', code, msg);
+      const error = new Error(friendly);
+      error.code = code;
+      throw error;
     }
   }
 
-  // Web
+  // Web (browser / dev mode)
   const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
   const provider = new GoogleAuthProvider();
   provider.addScope('email');

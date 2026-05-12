@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { signInWithGoogle, firebaseSignOut, onAuthStateChanged } from '@/lib/firebaseAuth';
+import { disableDemoMode } from '@/lib/demoMode';
 
 const AuthContext = createContext();
 
@@ -17,6 +18,7 @@ export const AuthProvider = ({ children }) => {
     // This is the ONLY reliable way to know auth state — no polling, no retries.
     onAuthStateChanged((firebaseUser) => {
       if (firebaseUser) {
+        disableDemoMode(); // always clear demo mode when a real user signs in
         setUser({ email: firebaseUser.email, displayName: firebaseUser.displayName, uid: firebaseUser.uid });
         setIsAuthenticated(true);
         setAuthError(null);

@@ -9,7 +9,7 @@ import { isDemoMode } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
 
 export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound }) {
-  const { logout, navigateToLogin } = useAuth();
+  const { logout, navigateToLogin, authError } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
@@ -221,6 +221,9 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
                   </div>
                 )}
               </>
+            )}
+            {isDemoMode() && authError?.type === 'auth_failed' && (
+              <p className="text-xs text-red-400 text-center px-1 break-words">{authError.message}</p>
             )}
             <Button
               variant="outline"
