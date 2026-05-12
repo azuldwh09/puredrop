@@ -1,11 +1,13 @@
-// Restored to original Base44 SDK auth flow — 2026-05-12
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
-import { enableDemoMode, isDemoMode } from '@/lib/demoMode';
+import { enableDemoMode, isDemoMode, disableDemoMode } from '@/lib/demoMode';
 
 const AuthContext = createContext();
+
+const isNativePlatform = () =>
+  typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -21,6 +23,15 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const checkAppState = async () => {
+    // On native (Capacitor/Android/iOS), skip the public-settings HTTP call —
+    // relative URLs don't resolve from file:// / capacitor:// origins.
+    // Go straight to auth check instead.
+    if (isNativePlatform()) {
+      setIsLoadingPublicSettings(false);
+      await checkUserAuth();
+      return;
+    }
+
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
@@ -111,7 +122,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Uses the Base44 SDK's built-in OAuth redirect — handles Google, etc.
   const navigateToLogin = () => {
     base44.auth.redirectToLogin(window.location.href);
   };
@@ -121,7 +131,7 @@ export const AuthProvider = ({ children }) => {
       user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings,
       authError, appPublicSettings, authChecked, logout, navigateToLogin,
       checkUserAuth, checkAppState,
-      isNativeMobile: typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.(),
+      isNativeMobile: isNativePlatform(),
     }}>
       {children}
     </AuthContext.Provider>
