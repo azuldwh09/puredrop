@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
 import { enableDemoMode, isDemoMode, disableDemoMode } from '@/lib/demoMode';
+import { nativeLogin, nativeLogout } from '@/lib/nativeAuth';
 
 const AuthContext = createContext();
 
@@ -23,9 +24,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const checkAppState = async () => {
-    // On native (Capacitor/Android/iOS), skip the public-settings HTTP call —
-    // relative URLs don't resolve from file:// / capacitor:// origins.
-    // Go straight to auth check instead.
+    // On native, skip the public-settings HTTP fetch (relative URL fails on device)
+    // and go straight to auth check.
     if (isNativePlatform()) {
       setIsLoadingPublicSettings(false);
       await checkUserAuth();
@@ -46,7 +46,6 @@ export const AuthProvider = ({ children }) => {
       try {
         const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appParams.appId}`);
         setAppPublicSettings(publicSettings);
-
         if (appParams.token) {
           await checkUserAuth();
         } else {
@@ -57,7 +56,6 @@ export const AuthProvider = ({ children }) => {
         setIsLoadingPublicSettings(false);
       } catch (appError) {
         console.error('App state check failed:', appError);
-
         const isNetworkError = !appError.status || appError.message === 'Network Error' || !navigator.onLine;
         if (isNetworkError) {
           enableDemoMode();
@@ -65,16 +63,9 @@ export const AuthProvider = ({ children }) => {
           setIsLoadingAuth(false);
           return;
         }
-
         if (appError.status === 403 && appError.data?.extra_data?.reason) {
           const reason = appError.data.extra_data.reason;
-          if (reason === 'auth_required') {
-            setAuthError({ type: 'auth_required', message: 'Authentication required' });
-          } else if (reason === 'user_not_registered') {
-            setAuthError({ type: 'user_not_registered', message: 'User not registered for this app' });
-          } else {
-            setAuthError({ type: reason, message: appError.message });
-          }
+          setAuthError({ type: reason, message: appError.message });
         } else {
           setAuthError({ type: 'unknown', message: appError.message || 'Failed to load app' });
         }
@@ -99,31 +90,48 @@ export const AuthProvider = ({ children }) => {
       const currentUser = await base44.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
+      setAuthError(null);
     } catch (error) {
       console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
       setIsAuthenticated(false);
-      setAuthChecked(true);
       if (error.status === 401 || error.status === 403) {
         setAuthError({ type: 'auth_required', message: 'Authentication required' });
       }
+    } finally {
+      setIsLoadingAuth(false);
+      setAuthChecked(true);
     }
   };
 
-  const logout = (shouldRedirect = true) => {
+  const navigateToLogin = async () => {
+    if (isNativePlatform()) {
+      try {
+        setIsLoadingAuth(true);
+        await nativeLogin();
+        await checkUserAuth();
+      } catch (err) {
+        console.error('Native login failed:', err);
+        setIsLoadingAuth(false);
+      }
+    } else {
+      base44.auth.redirectToLogin(window.location.href);
+    }
+  };
+
+  const logout = async (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
-    if (shouldRedirect) {
-      base44.auth.logout(window.location.href);
+    if (isNativePlatform()) {
+      nativeLogout();
+      // Re-check auth state so UI updates correctly
+      setAuthError({ type: 'auth_required', message: 'Authentication required' });
     } else {
-      base44.auth.logout();
+      if (shouldRedirect) {
+        base44.auth.logout(window.location.href);
+      } else {
+        base44.auth.logout();
+      }
     }
-  };
-
-  const navigateToLogin = () => {
-    base44.auth.redirectToLogin(window.location.href);
   };
 
   return (

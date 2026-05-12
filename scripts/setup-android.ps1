@@ -3,14 +3,21 @@ param([string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot))
 Write-Host "=== PureDrop Android Setup ===" -ForegroundColor Cyan
 Set-Location $ProjectRoot
 
-Write-Host "`n[1/6] Building web assets..." -ForegroundColor Yellow
+Write-Host "`n[1/7] Installing dependencies..." -ForegroundColor Yellow
+npm install --legacy-peer-deps
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "npm install failed!" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "`n[2/7] Building web assets..." -ForegroundColor Yellow
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "`n[2/6] Copying google-services.json..." -ForegroundColor Yellow
+Write-Host "`n[3/7] Copying google-services.json..." -ForegroundColor Yellow
 $src = Join-Path $ProjectRoot "android-patches\google-services.json"
 $dst = Join-Path $ProjectRoot "android\app\google-services.json"
 if (Test-Path $src) {
@@ -20,7 +27,7 @@ if (Test-Path $src) {
     Write-Host "  MISSING: $src" -ForegroundColor Red
 }
 
-Write-Host "`n[3/6] Applying AndroidManifest.xml..." -ForegroundColor Yellow
+Write-Host "`n[4/7] Applying AndroidManifest.xml..." -ForegroundColor Yellow
 $src2 = Join-Path $ProjectRoot "android-patches\AndroidManifest.xml"
 $dst2 = Join-Path $ProjectRoot "android\app\src\main\AndroidManifest.xml"
 if (Test-Path $src2) {
@@ -30,7 +37,7 @@ if (Test-Path $src2) {
     Write-Host "  MISSING: $src2" -ForegroundColor Red
 }
 
-Write-Host "`n[4/6] Fixing ProGuard config..." -ForegroundColor Yellow
+Write-Host "`n[5/7] Fixing ProGuard config..." -ForegroundColor Yellow
 $gradle = Join-Path $ProjectRoot "android\app\build.gradle"
 if (Test-Path $gradle) {
     $c = Get-Content $gradle -Raw
@@ -39,7 +46,7 @@ if (Test-Path $gradle) {
     Write-Host "  OK proguard-android-optimize.txt set" -ForegroundColor Green
 }
 
-Write-Host "`n[5/6] Deploying app icons..." -ForegroundColor Yellow
+Write-Host "`n[6/7] Deploying app icons..." -ForegroundColor Yellow
 $iconSrc = Join-Path $ProjectRoot "android-resources"
 $iconDst = Join-Path $ProjectRoot "android\app\src\main\res"
 if (Test-Path $iconSrc) {
@@ -59,7 +66,7 @@ if (Test-Path $iconSrc) {
     Write-Host "  SKIP no android-resources folder found" -ForegroundColor Yellow
 }
 
-Write-Host "`n[6/6] Syncing Capacitor..." -ForegroundColor Yellow
+Write-Host "`n[7/7] Syncing Capacitor (includes @capacitor/browser)..." -ForegroundColor Yellow
 npx cap sync android
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n=== Done! Open Android Studio and Build APK ===" -ForegroundColor Green
