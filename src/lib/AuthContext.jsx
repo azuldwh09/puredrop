@@ -1,118 +1,127 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+// Restored to original Base44 SDK auth flow — 2026-05-12
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { signInWithGoogle, firebaseSignOut } from '@/lib/firebaseAuth';
+import { appParams } from '@/lib/app-params';
+import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
+import { enableDemoMode, isDemoMode } from '@/lib/demoMode';
 
-const AuthContext = createContext(null);
-
-const isNativeMobile = () =>
-  typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser]                           = useState(null);
-  const [isAuthenticated, setIsAuthenticated]     = useState(false);
-  const [isLoadingAuth, setIsLoadingAuth]         = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(false);
-  const [authError, setAuthError]                 = useState(null);
-  const [appPublicSettings, setAppPublicSettings] = useState({});
-  const [authChecked, setAuthChecked]             = useState(false);
-  const [loginError, setLoginError]               = useState(null);
-  const loggingIn = useRef(false);
-
-  const checkUserAuth = useCallback(async () => {
-    setIsLoadingAuth(true);
-    try {
-      const me = await base44.auth.me();
-      setUser(me);
-      setIsAuthenticated(true);
-      setAuthError(null);
-    } catch {
-      setUser(null);
-      setIsAuthenticated(false);
-      setAuthError('unauthenticated');
-    } finally {
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    }
-  }, []);
-
-  const checkAppState = useCallback(async () => {
-    setIsLoadingPublicSettings(true);
-    setIsLoadingPublicSettings(false);
-  }, []);
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
+  const [authError, setAuthError] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [appPublicSettings, setAppPublicSettings] = useState(null);
 
   useEffect(() => {
-    checkUserAuth();
     checkAppState();
   }, []);
 
-  /**
-   * Sign in with Google via Firebase.
-   * Native: shows native Google account picker — no browser needed.
-   * Web: Firebase popup.
-   * After getting the Firebase ID token we log into Base44 using loginWithProvider.
-   */
-  const navigateToLogin = useCallback(async () => {
-    if (loggingIn.current) return;
-    loggingIn.current = true;
-    setLoginError(null);
-    setIsLoadingAuth(true);
-
+  const checkAppState = async () => {
     try {
-      // Step 1 — Get Google ID token from Firebase
-      const { idToken, email, displayName } = await signInWithGoogle();
+      setIsLoadingPublicSettings(true);
+      setAuthError(null);
 
-      // Step 2 — Exchange with Base44
-      // base44.auth.loginWithProvider redirects on web but on native
-      // we call it differently — use loginViaEmailPassword fallback if needed.
-      // Try the standard provider flow first:
+      const appClient = createAxiosClient({
+        baseURL: `/api/apps/public`,
+        headers: { 'X-App-Id': appParams.appId },
+        token: appParams.token,
+        interceptResponses: true,
+      });
+
       try {
-        await base44.auth.loginWithProvider('google', idToken);
-      } catch (providerErr) {
-        console.warn('loginWithProvider failed, trying token exchange:', providerErr);
-        // Fallback: set the token directly if Base44 exposes a token in the error
-        // or re-throw for user to see
-        throw providerErr;
+        const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appParams.appId}`);
+        setAppPublicSettings(publicSettings);
+
+        if (appParams.token) {
+          await checkUserAuth();
+        } else {
+          setIsLoadingAuth(false);
+          setIsAuthenticated(false);
+          setAuthChecked(true);
+        }
+        setIsLoadingPublicSettings(false);
+      } catch (appError) {
+        console.error('App state check failed:', appError);
+
+        const isNetworkError = !appError.status || appError.message === 'Network Error' || !navigator.onLine;
+        if (isNetworkError) {
+          enableDemoMode();
+          setIsLoadingPublicSettings(false);
+          setIsLoadingAuth(false);
+          return;
+        }
+
+        if (appError.status === 403 && appError.data?.extra_data?.reason) {
+          const reason = appError.data.extra_data.reason;
+          if (reason === 'auth_required') {
+            setAuthError({ type: 'auth_required', message: 'Authentication required' });
+          } else if (reason === 'user_not_registered') {
+            setAuthError({ type: 'user_not_registered', message: 'User not registered for this app' });
+          } else {
+            setAuthError({ type: reason, message: appError.message });
+          }
+        } else {
+          setAuthError({ type: 'unknown', message: appError.message || 'Failed to load app' });
+        }
+        setIsLoadingPublicSettings(false);
+        setIsLoadingAuth(false);
       }
-
-      // Step 3 — Re-check Base44 session
-      await checkUserAuth();
-    } catch (err) {
-      console.error('Sign-in error:', err);
-      const msg = err?.message?.includes('cancel')
-        ? 'Sign-in cancelled.'
-        : 'Sign-in failed. Please try again.';
-      setLoginError(msg);
+    } catch (error) {
+      console.error('Unexpected error:', error);
+      if (!navigator.onLine || error.message === 'Network Error') {
+        enableDemoMode();
+      } else {
+        setAuthError({ type: 'unknown', message: error.message || 'An unexpected error occurred' });
+      }
+      setIsLoadingPublicSettings(false);
       setIsLoadingAuth(false);
-    } finally {
-      loggingIn.current = false;
     }
-  }, [checkUserAuth]);
+  };
 
-  const logout = useCallback(async () => {
-    await firebaseSignOut();
-    try { base44.auth.logout(); } catch {}
+  const checkUserAuth = async () => {
+    try {
+      setIsLoadingAuth(true);
+      const currentUser = await base44.auth.me();
+      setUser(currentUser);
+      setIsAuthenticated(true);
+      setIsLoadingAuth(false);
+      setAuthChecked(true);
+    } catch (error) {
+      console.error('User auth check failed:', error);
+      setIsLoadingAuth(false);
+      setIsAuthenticated(false);
+      setAuthChecked(true);
+      if (error.status === 401 || error.status === 403) {
+        setAuthError({ type: 'auth_required', message: 'Authentication required' });
+      }
+    }
+  };
+
+  const logout = (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
-    setAuthError('unauthenticated');
-    setLoginError(null);
-  }, []);
+    if (shouldRedirect) {
+      base44.auth.logout(window.location.href);
+    } else {
+      base44.auth.logout();
+    }
+  };
+
+  // Uses the Base44 SDK's built-in OAuth redirect — handles Google, etc.
+  const navigateToLogin = () => {
+    base44.auth.redirectToLogin(window.location.href);
+  };
 
   return (
     <AuthContext.Provider value={{
-      user,
-      isAuthenticated,
-      isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      loginError,
-      appPublicSettings,
-      authChecked,
-      logout,
-      navigateToLogin,
-      checkUserAuth,
-      checkAppState,
-      isOffline: false,
-      isNativeMobile: isNativeMobile(),
+      user, isAuthenticated, isLoadingAuth, isLoadingPublicSettings,
+      authError, appPublicSettings, authChecked, logout, navigateToLogin,
+      checkUserAuth, checkAppState,
+      isNativeMobile: typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.(),
     }}>
       {children}
     </AuthContext.Provider>
