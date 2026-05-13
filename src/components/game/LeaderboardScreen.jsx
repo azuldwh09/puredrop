@@ -4,6 +4,7 @@ import { Trophy, User, Globe, RefreshCw, WifiOff } from 'lucide-react';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
 import { getLeaderboard } from '@/lib/firebaseDb';
 import { isDemoMode } from '@/lib/demoMode';
+import { getAllForUser as getLocalScoresForUser } from '@/lib/localScores';
 import { Button } from '@/components/ui/button';
 
 const ALL_TABS = [
@@ -66,19 +67,33 @@ export default function LeaderboardScreen() {
     }
 
     if (!isLocal) {
+      // ---- Personal scores: LOCAL-FIRST ---------------------------------
+      // Pulled from localStorage (lib/localScores.js) rather than Firestore.
+      // This guarantees the tab populates the instant the player finishes a
+      // level, works in airplane mode, and stays consistent with the stars
+      // and high scores shown on the level carousel (which use the same
+      // local-first store).
       try {
         const user = await getCurrentFirebaseUser();
         setMyEmail(user?.email || null);
-        // Personal scores — Firestore query
-        const { getFirestore } = await import('@/lib/firebaseAuth');
-        const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
-        const db = await getFirestore();
-        const q = query(collection(db, 'levelScores'), where('uid', '==', user.uid), orderBy('score', 'desc'), limit(10));
-        const snap = await getDocs(q);
-        const personal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setPersonalScores(Array.isArray(personal) ? personal : []);
+        const uid = (user && user.uid) ? user.uid : 'demo';
+        const bucket = getLocalScoresForUser(uid) || {};
+        // Flatten { [level]: { highScore, stars, win, accuracy, plays } } into
+        // the { level, score, id, win, stars } row shape the UI expects.
+        const personal = Object.entries(bucket)
+          .map(([lvl, rec]) => ({
+            id:    'local-' + lvl,
+            level: Number(lvl),
+            score: rec.highScore || 0,
+            stars: rec.stars || 0,
+            win:   !!rec.win,
+          }))
+          .filter(r => r.score > 0 || r.stars > 0)  // hide untouched levels
+          .sort((a, b) => b.score - a.score)         // best first
+          .slice(0, 20);
+        setPersonalScores(personal);
       } catch (err) {
-        console.error('Failed to load personal scores:', err);
+        console.error('Failed to load personal scores from local store:', err);
         setPersonalScores([]);
       }
     }

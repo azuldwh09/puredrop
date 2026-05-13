@@ -163,7 +163,7 @@ export default function Game() {
       if (currentSpills >= 2) {
         cancelAnimationFrame(rafRef.current);
         clearInterval(itemSpawnRef.current);
-        clearInterval(timerRef.current);
+        clearTimeout(timerRef.current);
         navigate('/gameover');
       }
     }
@@ -262,9 +262,13 @@ export default function Game() {
     setItems(prev => {
       const surviving = [];
       for (const item of prev) {
-        // slow_time slows obstacles and dirty drops (not clean drops or downpour)
+        // slow_time slows obstacles and dirty drops ONLY.
+        // Clean drops, downpour drops, and power-up items keep their normal
+        // falling speed so the player can still catch the good stuff at a
+        // comfortable pace -- only the things they want to AVOID slow down.
         const isCleanDrop = item.type === ITEM_TYPES.CLEAN;
-        const speedMult = slowActive && !isCleanDrop ? 0.45 : 1;
+        const isPowerUp   = item.type === ITEM_TYPES.POWERUP;
+        const speedMult   = (slowActive && !isCleanDrop && !isPowerUp) ? 0.45 : 1;
         let newX = item.x;
         // Attract: nudge clean drops toward cup center
         if (attractActive && item.type === ITEM_TYPES.CLEAN) {
@@ -435,7 +439,7 @@ export default function Game() {
     audio.stopRain();
     cancelAnimationFrame(rafRef.current);
     clearInterval(itemSpawnRef.current);
-    clearInterval(timerRef.current);
+    clearTimeout(timerRef.current);
     setCountingDown(false);
     navigate('/');
   }, [navigate, audio]);
@@ -522,26 +526,49 @@ export default function Game() {
     };
     itemSpawnRef.current = setInterval(spawnLoop, spawnInterval);
 
-    timerRef.current = setInterval(() => {
-      if (isPausedRef.current) return;
+    // ---- Countdown timer --------------------------------------------------
+    // Implemented as a self-rescheduling setTimeout (not setInterval) so the
+    // tick rate can change between ticks. While slow_time is active we tick
+    // every 1818ms instead of 1000ms -- the inverse of the 0.45x movement
+    // multiplier, so subjective game time slows down to match the visual
+    // slowdown of obstacles and dirty drops. Without this, slow_time felt
+    // like a "more time" power-up because nothing was happening on screen
+    // while the clock kept counting at full speed.
+    const SLOW_TICK_MS   = 1818;  // ~ 1000 / 0.55, matches obstacle slowdown
+    const NORMAL_TICK_MS = 1000;
+    const tickClock = () => {
+      if (isPausedRef.current) {
+        // Re-check shortly without decrementing while paused.
+        timerRef.current = setTimeout(tickClock, 200);
+        return;
+      }
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(timerRef.current);
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = null;
           cancelAnimationFrame(rafRef.current);
           clearInterval(itemSpawnRef.current);
           setScreen('gameover');
           return 0;
         }
+        // Schedule the NEXT tick based on the live slow_time status. We read
+        // activePowerUpsRef directly so this picks up the change the moment
+        // slow_time activates or expires.
+        const pups = activePowerUpsRef.current;
+        const slowActive = pups.slow_time && pups.slow_time > Date.now();
+        const nextDelay = slowActive ? SLOW_TICK_MS : NORMAL_TICK_MS;
+        timerRef.current = setTimeout(tickClock, nextDelay);
         return prev - 1;
       });
-    }, 1000);
+    };
+    timerRef.current = setTimeout(tickClock, NORMAL_TICK_MS);
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       cancelAnimationFrame(rafRef.current);
       clearInterval(itemSpawnRef.current);
-      clearInterval(timerRef.current);
+      clearTimeout(timerRef.current);
     };
   }, [screen, countingDown, currentLevel]);
 
