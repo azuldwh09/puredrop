@@ -30,6 +30,7 @@ export const FIREBASE_CONFIG = {
   projectId:         'puredrop-730ca',
   storageBucket:     'puredrop-730ca.firebasestorage.app',
   messagingSenderId: '216915385441',
+  appId:             '1:216915385441:android:c8cd84f347bf1dcb739e20',
   // Web OAuth client ID -- used by the Capacitor plugin as a serverClientId
   googleWebClientId: '216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com',
 };
