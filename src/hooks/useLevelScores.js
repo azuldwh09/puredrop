@@ -1,122 +1,121 @@
 // =============================================================================
 // LEVEL SCORES HOOK -- src/hooks/useLevelScores.js
 // =============================================================================
-// Fetches the player's per-level completion history from Firestore.
+// Local-first per-level score & star tracking.
 //
-// What it loads:
-//   - Up to 200 most recent level completions for the signed-in user
-//   - Each record: { level, score, win, stars, accuracy, created_at }
+// How it works:
+//   1. On mount, immediately read from localStorage (lib/localScores.js).
+//      The UI gets stars + high scores without any network latency.
+//   2. In the background, try to fetch the player's Firestore history and
+//      merge it into local storage (keeping the best of each field).
+//   3. recordLocal() is the path used at end-of-level: it writes to local
+//      storage synchronously and updates the in-memory map immediately so
+//      the carousel reflects the new stars before the player even sees the
+//      game-over screen.
 //
 // Returns:
-//   - scores:       raw array of records (Leaderboard "My Scores" tab)
-//   - levelData:    map { [level]: { stars, highScore } } for LevelCarousel cards
+//   - levelData:    map { [level]: { stars, highScore } } for LevelCarousel
+//   - scores:       flat array (for the Leaderboard "My Scores" tab)
 //   - loading, error
-//   - refresh():    re-query Firestore (call after a level completes when online)
-//   - recordLocal(level, stars, score): optimistic in-memory bump so stars
-//                   appear immediately, even offline -- merged with whatever
-//                   the next Firestore refresh returns.
-//
-// Offline behavior:
-//   - Firestore's IndexedDB cache returns whatever it has -- no error thrown.
-//   - recordLocal() works regardless of network and is the primary path for
-//     showing fresh stars during an active play session.
+//   - refresh():    re-fetch Firestore (no-op offline -- local data is still
+//                   authoritative)
+//   - recordLocal(level, stars, score, win, accuracy):
+//                   write a fresh level result to local storage and update
+//                   the in-memory map. Always succeeds, online or offline.
 // =============================================================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
 import { isDemoMode } from '@/lib/demoMode';
+import {
+  getAllForUser,
+  recordLevelResult,
+  mergeRemoteScores,
+} from '@/lib/localScores';
 
 export function useLevelScores() {
-  const [scores,     setScores]     = useState([]);
-  const [localBumps, setLocalBumps] = useState({}); // { [level]: { stars, highScore } }
+  // localMap mirrors localStorage but lives in React state so changes trigger
+  // re-renders. It is the authoritative source the carousel reads from.
+  const [localMap,   setLocalMap]   = useState({});  // { [level]: record }
+  const [remoteList, setRemoteList] = useState([]);  // raw Firestore rows
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
+  const uidRef = useRef(null);
 
+  // ---- Initial load: localStorage first, then Firestore in background ------
   const load = useCallback(async () => {
-    // Demo mode: nothing server-side to load
-    if (isDemoMode()) {
-      setScores([]);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
-    try {
-      const user = await getCurrentFirebaseUser();
-      if (!user) {
-        setScores([]);
-        setLoading(false);
-        return;
-      }
 
+    // Determine which UID bucket to read from.
+    let uid = 'demo';
+    if (!isDemoMode()) {
+      try {
+        const user = await getCurrentFirebaseUser();
+        if (user && user.uid) uid = user.uid;
+      } catch { /* fall through, treat as demo */ }
+    }
+    uidRef.current = uid;
+
+    // ----- Step 1: synchronous local read (always succeeds) -----------------
+    setLocalMap(getAllForUser(uid));
+    setLoading(false);
+
+    // ----- Step 2: background Firestore reconcile (best-effort) -------------
+    if (isDemoMode() || uid === 'demo') return;
+
+    try {
       const { getFirestore } = await import('@/lib/firebaseAuth');
       const { collection, query, where, orderBy, limit, getDocs } =
         await import('firebase/firestore');
-
-      const db = await getFirestore();
-      const q  = query(
+      const db   = await getFirestore();
+      const q    = query(
         collection(db, 'levelScores'),
-        where('uid', '==', user.uid),
+        where('uid', '==', uid),
         orderBy('score', 'desc'),
-        limit(200),
+        limit(500),
       );
-
       const snap    = await getDocs(q);
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setScores(records);
+      setRemoteList(records);
+      // Merge remote into local store and reload the map
+      mergeRemoteScores(uid, records);
+      setLocalMap(getAllForUser(uid));
     } catch (err) {
-      console.error('[LevelScores] Failed to load:', err);
-      setError('Could not load your scores.');
-      // Don't clobber any local bumps that were already recorded
-      setScores(prev => prev || []);
-    } finally {
-      setLoading(false);
+      // Offline or permission error -- not fatal. Local data still shows.
+      console.warn('[LevelScores] remote reconcile skipped:', err && (err.code || err.message));
+      setError(null);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Optimistically record a freshly-completed level so stars appear NOW.
-  // Works in demo mode, online, and offline.
-  const recordLocal = useCallback((level, stars, score) => {
-    if (typeof level !== 'number') return;
-    setLocalBumps(prev => {
-      const existing = prev[level];
-      const nextHigh = Math.max(existing?.highScore ?? 0, score ?? 0);
-      const nextStar = Math.max(existing?.stars     ?? 0, stars ?? 0);
-      return { ...prev, [level]: { stars: nextStar, highScore: nextHigh } };
-    });
+  // ---- recordLocal: write a fresh result, return the merged record ---------
+  const recordLocal = useCallback((level, stars, score, win, accuracy) => {
+    const uid = uidRef.current || 'demo';
+    const merged = recordLevelResult(uid, level, score, stars, win, accuracy ?? 0);
+    if (merged) {
+      // Update in-memory state synchronously so the carousel sees the change
+      // on the very next render.
+      setLocalMap(prev => ({ ...prev, [level]: merged }));
+    }
+    return merged;
   }, []);
 
-  // Merge Firestore scores + local bumps into a per-level best map
+  // ---- Derived shapes for consumers ----------------------------------------
+  // levelData: trimmed { [level]: { stars, highScore } } for the carousel.
   const levelData = useMemo(() => {
-    const map = {};
-    if (Array.isArray(scores)) {
-      for (const s of scores) {
-        const lvl = s?.level;
-        if (typeof lvl !== 'number') continue;
-        const existing = map[lvl];
-        if (!existing || (s.score ?? 0) > (existing.highScore ?? 0)) {
-          map[lvl] = { stars: s.stars ?? 0, highScore: s.score ?? 0 };
-        }
-      }
+    const out = {};
+    for (const [lvl, rec] of Object.entries(localMap)) {
+      out[Number(lvl)] = { stars: rec.stars || 0, highScore: rec.highScore || 0 };
     }
-    // Local bumps win when they're higher than any server record
-    for (const [lvl, bump] of Object.entries(localBumps)) {
-      const k = Number(lvl);
-      const existing = map[k];
-      if (!existing) {
-        map[k] = bump;
-      } else {
-        map[k] = {
-          stars:     Math.max(existing.stars ?? 0,     bump.stars ?? 0),
-          highScore: Math.max(existing.highScore ?? 0, bump.highScore ?? 0),
-        };
-      }
-    }
-    return map;
-  }, [scores, localBumps]);
+    return out;
+  }, [localMap]);
 
-  return { scores, levelData, loading, error, refresh: load, recordLocal };
+  // scores: flat array of every Firestore record (used by Leaderboard's
+  // "My Scores" tab). Local-only history doesn't appear here because the
+  // leaderboard tab is inherently a server view.
+  const scores = remoteList;
+
+  return { scores, levelData, localMap, loading, error, refresh: load, recordLocal };
 }

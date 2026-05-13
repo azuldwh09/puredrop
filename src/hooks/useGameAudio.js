@@ -113,6 +113,19 @@ export const useGameAudio = (soundEnabled = true) => {
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
+
+    // "Warm-up" silent oscillator. Some Android WebView builds drop the very
+    // first audio output after a context resume; firing a 1ms silent tone
+    // primes the pipeline so subsequent sounds are reliably audible.
+    try {
+      const warm = ctx.createOscillator();
+      const warmGain = ctx.createGain();
+      warmGain.gain.value = 0.0001; // effectively silent
+      warm.connect(warmGain);
+      warmGain.connect(master);
+      warm.start(ctx.currentTime);
+      warm.stop(ctx.currentTime + 0.05);
+    } catch (_) { /* non-fatal */ }
   }, []);
 
   // ==========================================================================

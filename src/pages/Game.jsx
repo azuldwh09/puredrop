@@ -359,6 +359,17 @@ export default function Game() {
       setCupX(prev => Math.min(GAME_WIDTH - CUP_WIDTH, prev + speed));
   }, [levelConfig, audio]);
 
+  // Fires on the very first touchstart/pointerdown the canvas sees. This is
+  // the gesture that unlocks the AudioContext on Android WebView. Calling it
+  // SYNCHRONOUSLY from inside the gesture handler (not awaited / not async)
+  // is what satisfies the autoplay policy -- doing it from touchmove is too
+  // late on some devices because touchmove may not be classified as a user
+  // gesture.
+  const handleUserGesture = useCallback(() => {
+    audio.initAudio();
+    audio.startBackgroundMusic();
+  }, [audio]);
+
   const handleTouchMove = useCallback((e) => {
     e.preventDefault();
     audio.startBackgroundMusic(); // Start audio on first interaction
@@ -379,6 +390,9 @@ export default function Game() {
   }, [audio]);
 
   const startGame = useCallback(async (level) => {
+    // The Play button click is a guaranteed user gesture -- unlock the
+    // AudioContext here so all subsequent sound calls work on Android.
+    try { audio.initAudio(); } catch (_) {}
     gameSavedRef.current = false;
     const cfg = getLevelConfig(level);
     // Capture highest_level BEFORE this game starts, so GameOverScreen knows if unlock is genuinely new
@@ -408,8 +422,8 @@ export default function Game() {
     lastPowerUpSpawnRef.current = {};
     setScreen('playing');
     setCountingDown(true);
-    // Audio starts on first user interaction (click/tap on game)
-  }, []);
+    // Audio is unlocked at the top of this function via audio.initAudio()
+  }, [audio]);
 
   const exitGame = useCallback(() => {
     audio.stopBackgroundMusic();
@@ -555,7 +569,7 @@ export default function Game() {
       // Optimistically update local star/score map so the carousel reflects
       // the result the instant the player returns -- works even offline.
       const earnedStars = computeStars(finalScore, catchRate, win);
-      recordLocalLevel(currentLevel, earnedStars, finalScore);
+      recordLocalLevel(currentLevel, earnedStars, finalScore, win, catchRate);
 
       // Persist (best-effort -- handles its own offline fallback)
       Promise.resolve(updateProgress(currentLevel, finalScore, win, catchRate))
@@ -735,6 +749,7 @@ export default function Game() {
                 isShaking={isShaking}
                 onTouchMove={handleTouchMove}
                 onMouseMove={handleMouseMove}
+                onUserGesture={handleUserGesture}
                 cupSkin={cupSkin}
                 theme={cupTheme}
               />
@@ -757,7 +772,13 @@ export default function Game() {
 
       {showAdModal && (
         <AdModal
-          onEarn={async () => { await addCup(1); setShowAdModal(false); }}
+          onEarn={async () => {
+            // Close modal IMMEDIATELY so rapid taps can't trigger another
+            // claim. Then process the reward off the UI thread.
+            setShowAdModal(false);
+            try { await addCup(1); }
+            catch (err) { console.error('addCup after ad reward failed:', err); }
+          }}
           onClose={() => setShowAdModal(false)}
         />
       )}

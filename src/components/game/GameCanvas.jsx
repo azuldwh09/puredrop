@@ -12,7 +12,8 @@ const RAIN_DROPS = Array.from({ length: 55 }, () => ({
 
 export default function GameCanvas({
   width, height, items, cupX, cupWidth, cupHeight,
-  fillAmount, fillGoal, purity, effects, isShaking, onTouchMove, onMouseMove, cupSkin, theme
+  fillAmount, fillGoal, purity, effects, isShaking, onTouchMove, onMouseMove, cupSkin, theme,
+  onUserGesture  // fired on first pointer/touch -- caller uses this to unlock audio
 }) {
   const canvasRef = useRef(null);
   const isDraggingRef = useRef(false);
@@ -710,7 +711,9 @@ export default function GameCanvas({
         WebkitTransform: 'translateZ(0)',
       }}
       onTouchMove={onTouchMove}
-      onMouseDown={() => { isDraggingRef.current = true; }}
+      onTouchStart={() => { onUserGesture?.(); }}
+      onPointerDown={() => { onUserGesture?.(); }}
+      onMouseDown={() => { isDraggingRef.current = true; onUserGesture?.(); }}
       onMouseUp={() => { isDraggingRef.current = false; }}
       onMouseLeave={() => { isDraggingRef.current = false; }}
       onMouseMove={(e) => {

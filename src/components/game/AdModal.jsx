@@ -24,7 +24,9 @@ export default function AdModal({ onEarn, onClose }) {
   const [phase,    setPhase]    = useState('prompt');
   const [errorMsg, setErrorMsg] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(OFFLINE_COUNTDOWN_SECONDS);
+  const [claiming,    setClaiming]    = useState(false); // disables button while reward in flight
   const offlineTimerRef = useRef(null);
+  const claimedRef      = useRef(false); // hard guard -- reward fires exactly once
 
   // Tick the offline countdown
   useEffect(() => {
@@ -41,6 +43,22 @@ export default function AdModal({ onEarn, onClose }) {
     }, 1000);
     return () => clearInterval(offlineTimerRef.current);
   }, [phase]);
+
+  // Idempotent claim handler: once the reward has been granted, additional
+  // taps on the button are ignored and the modal closes. This prevents the
+  // "claim multiple times" exploit that previously could refill the cup
+  // counter on repeated rapid taps.
+  const handleClaim = async () => {
+    if (claimedRef.current || claiming) return;
+    claimedRef.current = true;
+    setClaiming(true);
+    try {
+      await onEarn?.();
+    } catch (err) {
+      console.error('AdModal claim error:', err);
+    }
+    // onEarn is expected to close the modal; if not, no further taps can fire.
+  };
 
   const startAd = async () => {
     // ── Offline fallback: no network means no ad will ever load. Replace
@@ -200,8 +218,13 @@ export default function AdModal({ onEarn, onClose }) {
             >🎉</motion.div>
             <h3 className="font-pixel text-sm text-foreground mb-2">You earned a cup!</h3>
             <p className="text-muted-foreground text-xs mb-6">+1 🥤 added to your collection</p>
-            <Button onClick={onEarn} className="w-full font-pixel text-xs">
-              <CheckCircle className="w-3 h-3 mr-1" /> Claim Reward
+            <Button
+              onClick={handleClaim}
+              disabled={claiming || claimedRef.current}
+              className="w-full font-pixel text-xs disabled:opacity-50"
+            >
+              <CheckCircle className="w-3 h-3 mr-1" />
+              {claiming ? 'Claiming...' : 'Claim Reward'}
             </Button>
           </>
         )}

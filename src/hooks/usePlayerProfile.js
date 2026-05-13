@@ -275,17 +275,21 @@ export function usePlayerProfile() {
       return true;
     }
 
-    // Optimistic UI update -- player sees the cup deducted immediately
-    setProfile(prev => ({ ...prev, cups: newCups }));
+    // Optimistic UI + local persistence. No rollback on offline -- a spent
+    // cup is spent regardless of server reachability, and the Firestore
+    // offline write queue will sync the deduction when online.
+    const optimistic = { ...p, cups: newCups };
+    setProfile(optimistic);
+    setCachedProfile(optimistic);
 
     try {
       const updated = await updateProfile(p.id, { cups: newCups });
-      setProfile(updated); // replace optimistic with server-confirmed value
+      setProfile(updated);
+      setCachedProfile(updated);
       return true;
     } catch (err) {
-      console.error('[Profile] spendCup failed:', err);
-      setProfile(p); // rollback to original on failure
-      return false;
+      console.warn('[Profile] spendCup: server sync deferred (offline?):', err && (err.message || err));
+      return true; // local deduction is authoritative
     }
   }, []);
 
@@ -318,15 +322,20 @@ export function usePlayerProfile() {
       return;
     }
 
-    // Optimistic UI update
-    setProfile(prev => ({ ...prev, cups: newCups }));
+    // Optimistic UI update + local persistence. We DO NOT roll back on
+    // server failure -- airplane-mode players still earn their cup and the
+    // Firestore offline write queue will replay when connectivity returns.
+    const optimistic = { ...p, cups: newCups };
+    setProfile(optimistic);
+    setCachedProfile(optimistic);
 
     try {
       const updated = await updateProfile(p.id, { cups: newCups });
       setProfile(updated);
+      setCachedProfile(updated);
     } catch (err) {
-      console.error('[Profile] addCup failed:', err);
-      setProfile(p); // rollback
+      console.warn('[Profile] addCup: server sync deferred (offline?):', err && (err.message || err));
+      // Keep the optimistic state -- local persistence already happened above.
     }
   }, []);
 
@@ -393,11 +402,13 @@ export function usePlayerProfile() {
     // Firestore's offline write queue will replay when connectivity returns.
     const optimistic = { ...p, ...updates };
     setProfile(optimistic);
+    setCachedProfile(optimistic);  // persist across app restarts
 
     try {
       // Update profile (total score + highest level)
       const updated = await updateProfile(p.id, updates);
       setProfile(updated);
+      setCachedProfile(updated);
 
       // Save level completion record (win/loss, stars, accuracy)
       const user = authUserRef.current;
