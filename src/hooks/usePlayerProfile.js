@@ -7,7 +7,6 @@ import {
   getOrCreateProfile, updateProfile,
   saveLevelScore, saveLeaderboardEntry,
 } from '@/lib/firebaseDb';
-import { diagStep } from '@/components/game/DiagPanel';
 
 const PROFILE_CACHE_KEY = 'puredrop_profile';
 
@@ -37,59 +36,43 @@ export function usePlayerProfile() {
   useEffect(() => { profileRef.current = profile; }, [profile]);
 
   const loadProfile = useCallback(async (user) => {
-    diagStep('profile:1:start', 'run', 'loadProfile called, user=' + (user ? user.uid : 'null'));
     setLoading(true);
     setError(null);
 
     if (isDemoMode()) {
-      diagStep('profile:1:start', 'skip', 'demo mode -- using local profile');
       setProfile(getDemoProfile());
       setLoading(false);
       return;
     }
 
     if (!user) {
-      diagStep('profile:1:start', 'skip', 'no user -- skipping load');
       setLoading(false);
       return;
     }
 
-    diagStep('profile:2:cache', 'run', 'checking localStorage cache...');
     const cached = getCachedProfile();
     if (cached && cached.uid === user.uid) {
-      diagStep('profile:2:cache', 'ok', 'cache HIT -- cups=' + cached.cups + ' skin=' + cached.selected_cup_skin);
       setProfile(cached);
       setLoading(false);
     } else {
-      diagStep('profile:2:cache', 'skip', cached ? 'uid mismatch (cached uid=' + cached.uid + ')' : 'no cache entry');
     }
 
-    diagStep('profile:3:firestore', 'run', 'getOrCreateProfile uid=' + user.uid);
     try {
       let p = await getOrCreateProfile(user.uid, user.email, user.displayName);
-      diagStep('profile:3:firestore', 'ok', 'got profile, _local=' + (p._local ? 'YES' : 'no') + ' cups=' + p.cups);
 
-      diagStep('profile:4:refill', 'run', 'autoRefill...');
       p = await autoRefill(p, user.uid);
-      diagStep('profile:4:refill', 'ok', 'cups after refill=' + p.cups);
 
-      diagStep('profile:5:streak', 'run', 'updateStreak...');
       p = await updateStreak(p, user.uid);
-      diagStep('profile:5:streak', 'ok', 'streak=' + p.streak);
 
-      diagStep('profile:6:done', 'ok', 'profile ready -- cups=' + p.cups + ' level=' + p.highest_level);
       setCachedProfile(p);
       setProfile(p);
     } catch (err) {
       const msg = (err && err.message) || String(err);
-      diagStep('profile:3:firestore', 'fail', msg);
       console.error('[Profile] load failed:', err);
       const current = profileRef.current;
       if (!current) {
-        diagStep('profile:6:done', 'fail', 'no fallback available');
         setError(msg);
       } else {
-        diagStep('profile:6:done', 'ok', 'using cached fallback');
       }
     } finally {
       setLoading(false);
@@ -98,8 +81,6 @@ export function usePlayerProfile() {
 
   const loadedForUidRef = useRef(null);
   useEffect(() => {
-    diagStep('profile:0:authwait', isLoadingAuth ? 'run' : 'ok',
-      isLoadingAuth ? 'waiting for Firebase auth...' : 'auth settled, isAuthenticated=' + !!authUser);
 
     if (isLoadingAuth) return;
 
@@ -117,7 +98,6 @@ export function usePlayerProfile() {
     }
 
     if (!uid) {
-      diagStep('profile:0:authwait', 'skip', 'no user after auth settled');
       setLoading(false);
     }
   }, [isLoadingAuth, authUser, loadProfile]);
@@ -127,7 +107,6 @@ export function usePlayerProfile() {
       const p = profileRef.current;
       const user = authUserRef.current;
       if (p && p._local && user) {
-        diagStep('profile:online-sync', 'run', 'back online -- syncing local profile');
         loadProfile(user);
       }
     };
@@ -162,7 +141,6 @@ export function usePlayerProfile() {
     const p = profileRef.current;
     if (!p || p.cups <= 0) return false;
     const newCups = p.cups - 1;
-    diagStep('cups:spend', 'ok', 'cups ' + p.cups + ' -> ' + newCups);
     if (isDemoMode()) { setProfile(updateDemoProfile({ cups: newCups })); return true; }
     setProfile(prev => ({ ...prev, cups: newCups }));
     try {
@@ -170,7 +148,6 @@ export function usePlayerProfile() {
       setProfile(updated);
       return true;
     } catch (err) {
-      diagStep('cups:spend', 'fail', err && err.message);
       setProfile(p);
       return false;
     }
@@ -180,24 +157,20 @@ export function usePlayerProfile() {
     const n = amount !== undefined ? amount : 1;
     let p = profileRef.current;
     if (!p) {
-      diagStep('cups:add', 'run', 'profile null -- waiting 2s');
       await new Promise(r => setTimeout(r, 2000));
       p = profileRef.current;
       if (!p) {
-        diagStep('cups:add', 'fail', 'profile still null after 2s wait');
         return;
       }
     }
     const cap = isDemoMode() ? DEMO_MAX_CUPS : MAX_CUPS;
     const newCups = Math.min(cap, p.cups + n);
-    diagStep('cups:add', 'ok', 'cups ' + p.cups + ' + ' + n + ' = ' + newCups + ' (cap=' + cap + ')');
     if (isDemoMode()) { setProfile(updateDemoProfile({ cups: newCups })); return; }
     setProfile(prev => ({ ...prev, cups: newCups }));
     try {
       const updated = await updateProfile(p.id, { cups: newCups });
       setProfile(updated);
     } catch (err) {
-      diagStep('cups:add', 'fail', err && err.message);
       setProfile(p);
     }
   }, []);
@@ -205,18 +178,15 @@ export function usePlayerProfile() {
   const setSkin = useCallback(async (skinId) => {
     const p = profileRef.current;
     if (!p) return;
-    diagStep('skin:set', 'run', 'setting skin=' + skinId);
     if (isDemoMode()) { setProfile(updateDemoProfile({ selected_cup_skin: skinId })); return; }
     const optimistic = { ...p, selected_cup_skin: skinId };
     setProfile(optimistic);
     setCachedProfile(optimistic);
     try {
       const updated = await updateProfile(p.id, { selected_cup_skin: skinId });
-      diagStep('skin:set', 'ok', 'skin saved');
       setProfile(updated);
       setCachedProfile(updated);
     } catch (err) {
-      diagStep('skin:set', 'fail', err && err.message);
     }
   }, []);
 
@@ -261,9 +231,7 @@ export function usePlayerProfile() {
 
   const reload = useCallback(() => {
     const user = authUserRef.current;
-    diagStep('profile:reload', 'run', 'manual reload triggered');
     if (user) loadProfile(user);
-    else diagStep('profile:reload', 'fail', 'no user -- cannot reload');
   }, [loadProfile]);
 
   return { profile, loading, error, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload };

@@ -9,7 +9,6 @@ import { enableDemoMode, isDemoMode, disableDemoMode } from '@/lib/demoMode';
 import Game from './pages/Game';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import LeaderboardPage from './pages/LeaderboardPage';
-import DiagPanel from '@/components/game/DiagPanel';
 
 // ─── Sign-In Screen ────────────────────────────────────────────────────────
 const SignInScreen = ({ onSignIn, onDemo, isLoading, error }) => (
@@ -138,7 +137,6 @@ function App() {
         </Router>
         <Toaster />
       </QueryClientProvider>
-      <DiagPanel />
     </AuthProvider>
   );
 }

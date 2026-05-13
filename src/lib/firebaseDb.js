@@ -4,7 +4,6 @@
  */
 import { getFirestore } from '@/lib/firebaseAuth';
 import { MAX_CUPS } from '@/lib/cupSkins';
-import { diagStep } from '@/components/game/DiagPanel';
 
 const FIRESTORE_TIMEOUT_MS = 2500;
 
@@ -26,11 +25,8 @@ function withTimeout(promise, ms) {
 export async function getOrCreateProfile(uid, email, displayName) {
   var db;
   try {
-    diagStep('fs:1:init', 'run', 'getFirestore()...');
     db = await getFirestore();
-    diagStep('fs:1:init', 'ok', 'Firestore initialized');
   } catch (dbErr) {
-    diagStep('fs:1:init', 'fail', (dbErr && dbErr.message) || String(dbErr));
     return buildLocalProfile(uid, email, displayName);
   }
 
@@ -38,7 +34,6 @@ export async function getOrCreateProfile(uid, email, displayName) {
   try {
     firestoreModule = await import('firebase/firestore');
   } catch (modErr) {
-    diagStep('fs:1:init', 'fail', 'module import failed: ' + (modErr && modErr.message));
     return buildLocalProfile(uid, email, displayName);
   }
 
@@ -49,38 +44,28 @@ export async function getOrCreateProfile(uid, email, displayName) {
   var serverTimestamp = firestoreModule.serverTimestamp;
   var ref = doc(db, 'playerProfiles', uid);
 
-  diagStep('fs:2:cache', 'run', 'getDocFromCache playerProfiles/' + uid);
   try {
     var cacheSnap = await getDocFromCache(ref);
     if (cacheSnap.exists()) {
       var cacheData = cacheSnap.data();
-      diagStep('fs:2:cache', 'ok', 'Firestore cache HIT -- cups=' + cacheData.cups);
       return { id: uid, ...cacheData };
     }
-    diagStep('fs:2:cache', 'skip', 'doc not in Firestore cache yet');
   } catch (cacheErr) {
-    diagStep('fs:2:cache', 'skip', 'cache err: ' + (cacheErr && (cacheErr.code || cacheErr.message)));
   }
 
-  diagStep('fs:3:network', 'run', 'getDoc (network, timeout=' + FIRESTORE_TIMEOUT_MS + 'ms)...');
   try {
     var netSnap = await withTimeout(getDoc(ref));
     if (netSnap.exists()) {
       var netData = netSnap.data();
-      diagStep('fs:3:network', 'ok', 'network fetch OK -- cups=' + netData.cups);
       return { id: uid, ...netData };
     }
-    diagStep('fs:3:network', 'ok', 'doc does not exist -- will create');
   } catch (netErr) {
     if (netErr.offline) {
-      diagStep('fs:3:network', 'fail', 'OFFLINE -- timed out, using local fallback');
       return buildLocalProfile(uid, email, displayName);
     }
-    diagStep('fs:3:network', 'fail', (netErr && netErr.message) || String(netErr));
     throw netErr;
   }
 
-  diagStep('fs:4:create', 'run', 'creating new profile in Firestore...');
   var newProfile = {
     uid: uid,
     user_email: email,
@@ -98,38 +83,29 @@ export async function getOrCreateProfile(uid, email, displayName) {
   };
   try {
     await setDoc(ref, newProfile);
-    diagStep('fs:4:create', 'ok', 'profile created');
   } catch (writeErr) {
     if (writeErr && (writeErr.code === 'unavailable' || (writeErr.message && writeErr.message.includes('offline')))) {
-      diagStep('fs:4:create', 'ok', 'offline write queued by Firestore');
       var local = { id: uid, ...newProfile, _local: true };
       setCachedProfileDirect(local);
       return local;
     }
-    diagStep('fs:4:create', 'fail', (writeErr && writeErr.message) || String(writeErr));
     throw writeErr;
   }
   return { id: uid, ...newProfile };
 }
 
 function buildLocalProfile(uid, email, displayName) {
-  diagStep('fs:local', 'run', 'building local profile from localStorage');
   try {
     var raw = localStorage.getItem('puredrop_profile');
     if (raw) {
       var cached = JSON.parse(raw);
       if (!cached.uid || cached.uid === uid) {
-        diagStep('fs:local', 'ok', 'localStorage HIT cups=' + cached.cups);
         return { ...cached, uid: uid, id: uid, _local: true };
       }
-      diagStep('fs:local', 'skip', 'localStorage uid mismatch');
     } else {
-      diagStep('fs:local', 'skip', 'localStorage empty');
     }
   } catch (e) {
-    diagStep('fs:local', 'fail', 'localStorage read error: ' + e.message);
   }
-  diagStep('fs:local', 'ok', 'returning brand new local profile');
   return {
     id: uid, uid: uid,
     user_email: email,
