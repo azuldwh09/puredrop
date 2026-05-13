@@ -19,6 +19,9 @@ const DEMO_KEY = 'puredrop_demo';
 // Maximum cups allowed in demo mode (same as normal play)
 export const DEMO_MAX_CUPS = 5;
 
+// Maximum level a guest (demo) player can reach before being prompted to sign in
+export const DEMO_MAX_LEVEL = 5;
+
 // -- Profile shape for demo players -------------------------------------------
 // A plain in-memory object that mirrors the Firestore profile shape so the
 // rest of the app can treat it identically.
