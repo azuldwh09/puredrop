@@ -18,7 +18,7 @@ const VISIBLE = 3;
 
 export default function LevelCarousel({
   profile, nextRefillIn, onPlay, onShowCustomizer, onWatchAd, onReload,
-  soundEnabled, onToggleSound,
+  soundEnabled, onToggleSound, onTestSound,
   levelData: levelDataProp,  // optional: when parent owns the scores hook
 }) {
   const isDemo = isDemoMode();
@@ -279,7 +279,7 @@ export default function LevelCarousel({
         </div>
 
         {showSettings && (
-          <SettingsModal onClose={() => setShowSettings(false)} soundEnabled={soundEnabled} onToggleSound={onToggleSound} />
+          <SettingsModal onClose={() => setShowSettings(false)} soundEnabled={soundEnabled} onToggleSound={onToggleSound} onTestSound={onTestSound} />
         )}
         <AnimatePresence>
           {showTutorial && (

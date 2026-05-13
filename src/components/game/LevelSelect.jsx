@@ -13,7 +13,7 @@ import StreakBadge from '@/components/game/StreakBadge';
 const LEVEL_COUNT = 500;
 const PAGE_SIZE = 40; // 8x5 grid per page
 
-export default function LevelSelect({ profile, nextRefillIn, onPlay, onShowCustomizer, onWatchAd, onReload, soundEnabled, onToggleSound }) {
+export default function LevelSelect({ profile, nextRefillIn, onPlay, onShowCustomizer, onWatchAd, onReload, soundEnabled, onToggleSound, onTestSound }) {
   const isDemo = isDemoMode();
   const highestLevel = Math.min(profile?.highest_level || 1, isDemo ? DEMO_MAX_LEVEL : Infinity);
   const cups = profile?.cups ?? 0;
@@ -265,7 +265,7 @@ export default function LevelSelect({ profile, nextRefillIn, onPlay, onShowCusto
         </Button>
       </div>
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} soundEnabled={soundEnabled} onToggleSound={onToggleSound} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} soundEnabled={soundEnabled} onToggleSound={onToggleSound} onTestSound={onTestSound} />}
       <AnimatePresence>
         {showTutorial && (
           <TutorialModal onClose={() => {

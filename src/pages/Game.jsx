@@ -646,6 +646,7 @@ export default function Game() {
               onReload={reload}
               soundEnabled={soundEnabled}
               onToggleSound={toggleSound}
+              onTestSound={() => audio.playTestTone()}
             />
             <BottomNav />
           </motion.div>

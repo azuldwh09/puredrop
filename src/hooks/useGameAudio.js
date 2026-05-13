@@ -83,50 +83,97 @@ export const useGameAudio = (soundEnabled = true) => {
   const thunderTimerRef = useRef(null);  // setInterval handle for thunder scheduling
   const pianoTimerRef   = useRef(null);  // setInterval handle for background piano
   const soundEnabledRef = useRef(soundEnabled);
-
-  // Keep the ref in sync without re-creating callbacks
-  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+  // Keep ref in sync on every render (cheap, runs during render -- guarantees
+  // the latest value is read by callbacks even before useEffect commits).
+  soundEnabledRef.current = soundEnabled;
 
   // -- AudioContext initialization -------------------------------------------
-  // Called lazily on first sound event to avoid "AudioContext not allowed before
-  // user gesture" warnings on Android WebView.
+  // Called lazily on the first user gesture to satisfy the autoplay policy
+  // on Android WebView / iOS Safari.
+  //
+  // Verbose logging is intentional -- left in production so remote-debug
+  // (chrome://inspect) sessions can immediately show whether audio is
+  // unlocking on the device. The cost is a few console messages per game.
   const initAudio = useCallback(() => {
-    // Resume an already-created context that may have been suspended
-    // by the WebView lifecycle (e.g. backgrounded -> foregrounded).
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) {
+      console.warn('[Audio] No AudioContext support in this WebView');
+      return;
+    }
+
+    // Path 1: context already exists -- ensure it is running.
     if (audioContextRef.current) {
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume().catch(() => {});
+      const ctx = audioContextRef.current;
+      console.log('[Audio] initAudio: existing context state =', ctx.state);
+      if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+        ctx.resume()
+          .then(() => console.log('[Audio] resumed, state =', ctx.state))
+          .catch(err => console.warn('[Audio] resume failed:', err));
       }
       return;
     }
-    const Ctx    = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx    = new Ctx();
+
+    // Path 2: create a fresh context.
+    let ctx;
+    try { ctx = new Ctx(); }
+    catch (err) {
+      console.error('[Audio] new AudioContext() threw:', err);
+      return;
+    }
+    console.log('[Audio] new context created, initial state =', ctx.state, 'sampleRate =', ctx.sampleRate);
+
     const master = ctx.createGain();
     master.gain.value = 1;
     master.connect(ctx.destination);
+
     audioContextRef.current = ctx;
     masterGainRef.current   = master;
-    // Android WebView starts AudioContext in 'suspended' state until a real
-    // user gesture. Call resume() — this initAudio is itself called from a
-    // gesture handler, so this satisfies the autoplay policy.
+
+    // Resume immediately if needed. This is the call that consumes the user
+    // gesture -- it MUST happen synchronously inside the gesture handler.
     if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+      ctx.resume()
+        .then(() => console.log('[Audio] post-create resume ok, state =', ctx.state))
+        .catch(err => console.warn('[Audio] post-create resume failed:', err));
     }
 
-    // "Warm-up" silent oscillator. Some Android WebView builds drop the very
-    // first audio output after a context resume; firing a 1ms silent tone
-    // primes the pipeline so subsequent sounds are reliably audible.
+    // Warm-up silent oscillator -- known workaround for Android WebView
+    // dropping the first audio output after resume().
     try {
       const warm = ctx.createOscillator();
-      const warmGain = ctx.createGain();
-      warmGain.gain.value = 0.0001; // effectively silent
-      warm.connect(warmGain);
-      warmGain.connect(master);
+      const wg   = ctx.createGain();
+      wg.gain.value = 0.0001;
+      warm.connect(wg); wg.connect(master);
       warm.start(ctx.currentTime);
       warm.stop(ctx.currentTime + 0.05);
-    } catch (_) { /* non-fatal */ }
+    } catch (err) {
+      console.warn('[Audio] warm-up oscillator failed:', err);
+    }
   }, []);
+
+  // Exposed diagnostic: plays a clearly-audible 440Hz beep for 200ms. Hooked
+  // up to a button in the Settings modal so the user can verify audio without
+  // playing a level. If this beep is silent on device, the problem is at the
+  // AudioContext / system-volume layer, NOT at the game-event layer.
+  const playTestTone = useCallback(() => {
+    initAudio();
+    const ctx    = audioContextRef.current;
+    const master = masterGainRef.current;
+    if (!ctx || !master) {
+      console.warn('[Audio] playTestTone: no ctx/master after init');
+      return;
+    }
+    console.log('[Audio] playTestTone fired, ctx.state =', ctx.state);
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 440;
+    g.gain.setValueAtTime(0.25, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.connect(g); g.connect(master);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.2);
+  }, [initAudio]);
 
   // ==========================================================================
   // Ambient rain loop
@@ -425,5 +472,6 @@ export const useGameAudio = (soundEnabled = true) => {
     playcatch:    playDropCatch, // alias (legacy name)
     playCatMeow:  playMiss,      // alias -- no dedicated meow sound yet, fall back to miss
     initAudio,         // call on first user gesture to unlock AudioContext
+    playTestTone,      // diagnostic 440Hz beep -- wired to Settings modal
   };
 };

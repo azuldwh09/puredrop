@@ -8,7 +8,7 @@ import TutorialModal from '@/components/game/TutorialModal';
 import { isDemoMode } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
 
-export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound }) {
+export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound, onTestSound }) {
   const { logout, navigateToLogin, authError } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -137,6 +137,19 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
                 <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${soundEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </div>
             </button>
+
+            {/* Test Sound button -- diagnostic. Plays a 440Hz beep so the
+                player (and remote-debug session) can verify audio output
+                without launching a level. */}
+            {onTestSound && (
+              <button
+                onClick={onTestSound}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 active:bg-primary/30 transition-colors text-xs text-foreground font-pixel"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-primary" />
+                Test Sound
+              </button>
+            )}
 
             {/* Theme selector */}
             <div className="px-3 py-2.5 rounded-lg border border-border/60 bg-card/50">
