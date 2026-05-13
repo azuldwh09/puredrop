@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "216915385441",
+    "project_id": "puredrop-730ca",
+    "storage_bucket": "puredrop-730ca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:216915385441:android:c8cd84f347bf1dcb739e20",
+        "android_client_info": {
+          "package_name": "com.base69e449509428256538e448f2.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "216915385441-64c6g5onca5ifkc0rb0glptti1b2at9b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.base69e449509428256538e448f2.app",
+            "certificate_hash": "559d27f3c9d2f7088492172edcea7d159f018783"
+          }
+        },
+        {
+          "client_id": "216915385441-frocjb9d6na8q57a330st2tf51br7fqk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.base69e449509428256538e448f2.app",
+            "certificate_hash": "31da360d9ff23e39caa17ef83f5824690dc032af"
+          }
+        },
+        {
+          "client_id": "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-p9yO7iFUuPah2DsXMgY06kiIpB_oHl0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "216915385441-dho1057l9f2d3c8rjvi9jqgjgcuk473f.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
