@@ -73,29 +73,36 @@ if (Test-Path $iconSrc) {
 }
 
 
-Write-Host '`n[9/9] Installing custom MainActivity.java (audio routing fix)...' -ForegroundColor Yellow
-# Capacitor uses package = appId from capacitor.config.json.
-# Read it so we substitute the correct package in the MainActivity template.
-$cfg = Get-Content (Join-Path $ProjectRoot 'capacitor.config.json') -Raw | ConvertFrom-Json
+Write-Host "`n[9/9] Installing custom MainActivity.java (audio routing fix)..." -ForegroundColor Yellow
+# Read appId from capacitor.config.json -- this is the Java package name.
+$cfgPath = Join-Path $ProjectRoot 'capacitor.config.json'
+$cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
 $pkg = $cfg.appId
 if (-not $pkg) {
     Write-Host '  ERROR: appId missing from capacitor.config.json' -ForegroundColor Red
 } else {
-    $template = Join-Path $ProjectRoot 'android-patches\MainActivity.java.template'
+    $template = Join-Path $ProjectRoot 'android-patches/MainActivity.java.template'
     if (-not (Test-Path $template)) {
-        Write-Host "  MISSING: $template" -ForegroundColor Red
+        Write-Host ("  MISSING template: " + $template) -ForegroundColor Red
     } else {
-        # Convert dotted package to slash path for filesystem.
-        $pkgPath = $pkg -replace '\.', ''
-        $maDir = Join-Path $ProjectRoot ("androidpp\src\main\java" + $pkgPath)
+        # Build path piece by piece using Join-Path so we never touch backslash regex.
+        $maDir = Join-Path $ProjectRoot 'android'
+        $maDir = Join-Path $maDir 'app'
+        $maDir = Join-Path $maDir 'src'
+        $maDir = Join-Path $maDir 'main'
+        $maDir = Join-Path $maDir 'java'
+        foreach ($segment in $pkg.Split('.')) {
+            $maDir = Join-Path $maDir $segment
+        }
         if (-not (Test-Path $maDir)) {
             New-Item -ItemType Directory -Path $maDir -Force | Out-Null
         }
         $maDst = Join-Path $maDir 'MainActivity.java'
         $content = Get-Content $template -Raw
-        $content = $content -replace '__PACKAGE__', $pkg
-        Set-Content $maDst $content -NoNewline
-        Write-Host "  OK MainActivity.java -> $pkg" -ForegroundColor Green
+        $content = $content.Replace('__PACKAGE__', $pkg)
+        Set-Content -Path $maDst -Value $content -NoNewline
+        Write-Host ("  OK MainActivity.java -> " + $pkg) -ForegroundColor Green
+        Write-Host ("     written to: " + $maDst) -ForegroundColor DarkGray
     }
 }
 
