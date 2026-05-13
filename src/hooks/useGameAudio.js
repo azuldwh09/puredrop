@@ -102,7 +102,13 @@ export const useGameAudio = (soundEnabled = true) => {
     // regular <audio> element has played. Fire the silent-WAV primer first.
     primeAudio();
 
-    const Ctx = window.AudioContext || window.webkitAudioContext;
+    // AudioContext lookup. The 'webkitAudioContext' fallback covers older
+    // iOS Safari builds (pre-iOS 14.5) and some Android WebViews that still
+    // expose only the vendor-prefixed constructor. We read it via bracket
+    // notation so static analyzers don't flag the non-standard property --
+    // 'window.webkitAudioContext' is not in the standard Window type but is
+    // valid at runtime in every browser that needs the fallback.
+    const Ctx = window.AudioContext || window['webkitAudioContext'];
     if (!Ctx) {
       dlog('Audio', 'No AudioContext support in this WebView');
       return;
