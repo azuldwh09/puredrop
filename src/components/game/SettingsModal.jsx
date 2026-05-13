@@ -7,7 +7,6 @@ import { getProfile, updateProfile, deleteProfile, removeLeaderboardEntriesForUs
 import TutorialModal from '@/components/game/TutorialModal';
 import { isDemoMode } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
-import { dlog } from '@/lib/debugLog';
 
 // =============================================================================
 // External privacy policy URL -- hosted as PRIVACY_POLICY.md in the GitHub repo.
@@ -17,7 +16,7 @@ import { dlog } from '@/lib/debugLog';
 // =============================================================================
 const PRIVACY_POLICY_URL = 'https://github.com/azuldwh09/puredrop/blob/main/PRIVACY_POLICY.md';
 
-export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound, onTestSound }) {
+export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound }) {
   const { logout, navigateToLogin, authError } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -146,63 +145,6 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
                 <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${soundEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </div>
             </button>
-
-            {/* ----------------------------------------------------------------
-                Audio diagnostics. Two side-by-side buttons:
-
-                  - Test Tone  -> Web Audio API path (uses useGameAudio's
-                                  playTestTone -> AudioContext oscillator).
-                  - Test File  -> HTMLAudioElement path (plays a bundled
-                                  WAV file via <audio> tag with no Web Audio
-                                  involvement at all).
-
-                Comparing the two isolates where the Android silence is
-                happening. If both work -> sound is fine, just check toggle.
-                If only Test File works -> Web Audio API output is being
-                routed to a phantom sink and we need MainActivity / native
-                fixes. If neither works -> the WebView itself is muted
-                (system-level: DnD, Bluetooth to silent device, focus).
-                ---------------------------------------------------------------- */}
-            <div className="grid grid-cols-2 gap-2">
-              {onTestSound && (
-                <button
-                  onClick={onTestSound}
-                  className="flex items-center justify-center gap-2 px-2 py-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 active:bg-primary/30 transition-colors text-[10px] text-foreground font-pixel"
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-primary" />
-                  Test Tone
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  // Diagnostic: play a real audio file via <audio> tag. This
-                  // bypasses the entire Web Audio API (no AudioContext,
-                  // oscillators, gain nodes) and uses the native HTML5 audio
-                  // path -- the same path Android's MediaPlayer ultimately
-                  // honors. If THIS plays but Test Tone doesn't, we have
-                  // confirmed proof that the issue is Web Audio routing,
-                  // not the device being muted.
-                  dlog('Audio', 'test-file: button pressed');
-                  try {
-                    const a = new Audio('/test-beep.wav');
-                    a.volume = 1.0;
-                    a.play()
-                      .then(() => {
-                        dlog('Audio', 'test-file: play() ok');
-                      })
-                      .catch(err => {
-                        dlog('Audio', 'test-file: play() failed', { err: String(err) });
-                      });
-                  } catch (err) {
-                    dlog('Audio', 'test-file: ctor threw', { err: String(err) });
-                  }
-                }}
-                className="flex items-center justify-center gap-2 px-2 py-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 active:bg-primary/30 transition-colors text-[10px] text-foreground font-pixel"
-              >
-                <Volume2 className="w-3.5 h-3.5 text-primary" />
-                Test File
-              </button>
-            </div>
 
             {/* Theme selector */}
             <div className="px-3 py-2.5 rounded-lg border border-border/60 bg-card/50">

@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import { useAuth } from '@/lib/AuthContext';
 
-const ADMIN_EMAIL = 'azuldwh@gmail.com';
-
+// =============================================================================
+// LevelJump (formerly AdminLevelJump)
+// =============================================================================
+// A small inline input for jumping to any unlocked level. Previously gated
+// behind a hard-coded admin email; now available to every player on the
+// device so they can quickly navigate the carousel without swiping through
+// every card.
+//
+// Props:
+//   onJump(level: number)  -- called when the player taps Go or presses Enter
+//   maxLevel  -- the highest level number the player is allowed to jump to.
+//                Pass the player's highest_unlocked_level here; we never let
+//                them skip past it.
+// =============================================================================
 export default function AdminLevelJump({ onJump, maxLevel }) {
-  const { user } = useAuth();
   const [val, setVal] = useState('');
-
-  if (!user || user.email !== ADMIN_EMAIL) return null;
 
   const handleGo = () => {
     const n = parseInt(val, 10);
@@ -19,7 +27,9 @@ export default function AdminLevelJump({ onJump, maxLevel }) {
 
   return (
     <div className="flex items-center gap-2 bg-card/60 border border-accent/40 rounded-xl px-3 py-2 w-full">
-      <span className="text-[10px] font-pixel text-accent shrink-0">🛠 Jump to:</span>
+      {/* Label -- plain text, no emoji. The wrench icon was a holdover from
+          the admin-only version and looked out of place in the production UI. */}
+      <span className="text-[10px] font-pixel text-accent shrink-0">Jump to:</span>
       <input
         type="number"
         min={1}
