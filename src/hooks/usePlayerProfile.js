@@ -387,6 +387,13 @@ export function usePlayerProfile() {
       return;
     }
 
+    // Apply locally FIRST so the UI (level unlock, total score) reflects the
+    // result immediately, even when offline. The server sync below is
+    // best-effort -- if it fails, the local state still moves forward and
+    // Firestore's offline write queue will replay when connectivity returns.
+    const optimistic = { ...p, ...updates };
+    setProfile(optimistic);
+
     try {
       // Update profile (total score + highest level)
       const updated = await updateProfile(p.id, updates);
@@ -405,11 +412,14 @@ export function usePlayerProfile() {
           user.email,
           user.displayName || user.email.split('@')[0],
           level,
-          score
+          score,
         );
       }
     } catch (err) {
-      console.error('[Profile] updateProgress failed:', err);
+      // Firestore queues offline writes automatically -- they'll flush on
+      // reconnect. The optimistic update above is what the UI sees in the
+      // meantime, so airplane mode still unlocks the next level.
+      console.warn('[Profile] updateProgress: server sync deferred (offline?):', err?.message || err);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

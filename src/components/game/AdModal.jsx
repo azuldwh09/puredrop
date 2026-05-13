@@ -1,20 +1,56 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Play, X, CheckCircle } from 'lucide-react';
+import { Play, X, CheckCircle, Timer, WifiOff } from 'lucide-react';
 
 // Detect native Capacitor environment
 const isNative = () =>
   typeof window !== 'undefined' &&
   window.Capacitor?.isNativePlatform?.();
 
+// Best-effort offline detection -- navigator.onLine is reliable on Android WebView
+// in airplane mode (returns false) and on the web.
+const isOffline = () =>
+  typeof navigator !== 'undefined' && navigator.onLine === false;
+
 const AD_UNIT_ID = 'ca-app-pub-3940256099942544/5354046379';
 
+// When the device is offline, ads cannot load. We show a 45-second countdown
+// instead so the player can still earn a cup by waiting.
+const OFFLINE_COUNTDOWN_SECONDS = 45;
+
 export default function AdModal({ onEarn, onClose }) {
-  const [phase, setPhase] = useState('prompt'); // prompt | loading | watching | done | error | unavailable
+  // prompt | loading | watching | done | error | unavailable | offlineWaiting
+  const [phase,    setPhase]    = useState('prompt');
   const [errorMsg, setErrorMsg] = useState('');
+  const [secondsLeft, setSecondsLeft] = useState(OFFLINE_COUNTDOWN_SECONDS);
+  const offlineTimerRef = useRef(null);
+
+  // Tick the offline countdown
+  useEffect(() => {
+    if (phase !== 'offlineWaiting') return;
+    offlineTimerRef.current = setInterval(() => {
+      setSecondsLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(offlineTimerRef.current);
+          setPhase('done');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(offlineTimerRef.current);
+  }, [phase]);
 
   const startAd = async () => {
+    // ── Offline fallback: no network means no ad will ever load. Replace
+    // the ad with a 45-second wait timer so the player still earns the cup.
+    if (isOffline()) {
+      setSecondsLeft(OFFLINE_COUNTDOWN_SECONDS);
+      setPhase('offlineWaiting');
+      return;
+    }
+
     // ── Native Capacitor path: real AdMob plugin ──
     if (isNative()) {
       setPhase('loading');
@@ -166,6 +202,29 @@ export default function AdModal({ onEarn, onClose }) {
             <p className="text-muted-foreground text-xs mb-6">+1 🥤 added to your collection</p>
             <Button onClick={onEarn} className="w-full font-pixel text-xs">
               <CheckCircle className="w-3 h-3 mr-1" /> Claim Reward
+            </Button>
+          </>
+        )}
+
+        {phase === 'offlineWaiting' && (
+          <>
+            <div className="text-5xl mb-3"><WifiOff className="w-12 h-12 mx-auto text-primary" /></div>
+            <h3 className="font-pixel text-sm text-foreground mb-2">Offline Wait</h3>
+            <p className="text-muted-foreground text-xs mb-4">
+              No ads available offline -- wait it out to earn your cup.
+            </p>
+            <div className="text-4xl font-pixel text-primary tabular-nums mb-3">
+              {String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:
+              {String(secondsLeft % 60).padStart(2, '0')}
+            </div>
+            <div className="w-full h-2 bg-border/40 rounded-full overflow-hidden mb-4">
+              <div
+                className="h-full bg-primary transition-all duration-1000 ease-linear"
+                style={{ width: `${100 - (secondsLeft / OFFLINE_COUNTDOWN_SECONDS) * 100}%` }}
+              />
+            </div>
+            <Button variant="outline" onClick={onClose} className="w-full text-xs">
+              <X className="w-3 h-3 mr-1" /> Cancel
             </Button>
           </>
         )}

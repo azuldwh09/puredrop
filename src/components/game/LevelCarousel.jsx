@@ -19,13 +19,17 @@ const VISIBLE = 3;
 export default function LevelCarousel({
   profile, nextRefillIn, onPlay, onShowCustomizer, onWatchAd, onReload,
   soundEnabled, onToggleSound,
+  levelData: levelDataProp,  // optional: when parent owns the scores hook
 }) {
   const isDemo = isDemoMode();
   const highestLevel = profile?.highest_level || 1;
   const cups = profile?.cups ?? 0;
   const noCups = cups <= 0;
 
-  const { levelData = {} } = useLevelScores();
+  // Use parent-provided levelData when available so newly-completed levels
+  // show fresh stars immediately. Fall back to the hook for standalone use.
+  const own = useLevelScores();
+  const levelData = levelDataProp ?? own.levelData ?? {};
 
   // Center the carousel on highest unlocked level
   const [centerLevel, setCenterLevel] = useState(highestLevel);

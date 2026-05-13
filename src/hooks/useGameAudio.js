@@ -91,13 +91,28 @@ export const useGameAudio = (soundEnabled = true) => {
   // Called lazily on first sound event to avoid "AudioContext not allowed before
   // user gesture" warnings on Android WebView.
   const initAudio = useCallback(() => {
-    if (audioContextRef.current) return;
-    const ctx    = new (window.AudioContext || window.webkitAudioContext)();
+    // Resume an already-created context that may have been suspended
+    // by the WebView lifecycle (e.g. backgrounded -> foregrounded).
+    if (audioContextRef.current) {
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+      return;
+    }
+    const Ctx    = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx    = new Ctx();
     const master = ctx.createGain();
     master.gain.value = 1;
     master.connect(ctx.destination);
     audioContextRef.current = ctx;
     masterGainRef.current   = master;
+    // Android WebView starts AudioContext in 'suspended' state until a real
+    // user gesture. Call resume() — this initAudio is itself called from a
+    // gesture handler, so this satisfies the autoplay policy.
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
   }, []);
 
   // ==========================================================================

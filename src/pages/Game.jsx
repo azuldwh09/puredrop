@@ -13,7 +13,8 @@ import Countdown from '../components/game/Countdown';
 import PauseOverlay from '../components/game/PauseOverlay';
 import NavigationHeader from '../components/game/NavigationHeader';
 import BottomNav from '../components/game/BottomNav';
-import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { usePlayerProfile, computeStars } from '@/hooks/usePlayerProfile';
+import { useLevelScores } from '@/hooks/useLevelScores';
 import { useGameAudio } from '@/hooks/useGameAudio';
 import { useSoundSettings } from '@/hooks/useSoundSettings';
 import { getLevelConfig } from '@/lib/levelConfig';
@@ -59,6 +60,7 @@ const SCREEN_TO_PATH = {
 
 export default function Game() {
   const { profile, loading, spendCup, addCup, setSkin, updateProgress, nextRefillIn, reload } = usePlayerProfile();
+  const { levelData, recordLocal: recordLocalLevel, refresh: refreshLevelScores } = useLevelScores();
   const { soundEnabled, toggleSound } = useSoundSettings();
   const audio = useGameAudio(soundEnabled);
   const navigate = useNavigate();
@@ -549,7 +551,17 @@ export default function Game() {
 
       const finalScore = baseScore + timeBonus + accuracyBonus;
       setScoreBreakdown({ baseScore, timeBonus, accuracyBonus, spawned, caught, catchRate, finalScore });
-      updateProgress(currentLevel, finalScore, win, catchRate);
+
+      // Optimistically update local star/score map so the carousel reflects
+      // the result the instant the player returns -- works even offline.
+      const earnedStars = computeStars(finalScore, catchRate, win);
+      recordLocalLevel(currentLevel, earnedStars, finalScore);
+
+      // Persist (best-effort -- handles its own offline fallback)
+      Promise.resolve(updateProgress(currentLevel, finalScore, win, catchRate))
+        .then(() => { refreshLevelScores?.(); })
+        .catch(() => {});
+
       if (!win) spendCup();
     }
   }, [screen, audio]);
@@ -612,6 +624,7 @@ export default function Game() {
           >
             <LevelCarousel
               profile={profile}
+              levelData={levelData}
               nextRefillIn={nextRefillIn}
               onPlay={startGame}
               onShowCustomizer={() => setScreen('customize')}
