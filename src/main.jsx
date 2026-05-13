@@ -12,7 +12,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from '@/App.jsx';
-import DebugOverlay from '@/components/DebugOverlay';
 import '@/index.css';
 
 // -- 1. Mount React app ------------------------------------------------------
@@ -20,7 +19,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <>
     <App />
     {/* On-screen log viewer for on-device debugging. Toggle pill is in top-right. */}
-    <DebugOverlay />
   </>
 );
 

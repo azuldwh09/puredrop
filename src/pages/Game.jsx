@@ -422,11 +422,17 @@ export default function Game() {
     lastPowerUpSpawnRef.current = {};
     setScreen('playing');
     setCountingDown(true);
-    // Audio is unlocked at the top of this function via audio.initAudio()
+    // Audio is unlocked at the top of this function via audio.initAudio().
+    // Now start the ambient rain loop -- this gives the level a soft
+    // background atmosphere and triggers periodic thunder rumbles via the
+    // recursive scheduler inside useGameAudio. Rain is stopped when the
+    // game ends (either through normal end-of-level flow or exitGame).
+    try { audio.startRain(); } catch (_) {}
   }, [audio]);
 
   const exitGame = useCallback(() => {
     audio.stopBackgroundMusic();
+    audio.stopRain();
     cancelAnimationFrame(rafRef.current);
     clearInterval(itemSpawnRef.current);
     clearInterval(timerRef.current);
@@ -548,7 +554,8 @@ export default function Game() {
     if (screen === 'gameover' && !gameSavedRef.current) {
       gameSavedRef.current = true;
       audio.stopBackgroundMusic();
-      
+      audio.stopRain();
+
       const baseScore = score;
       let timeBonus = 0;
       let accuracyBonus = 0;

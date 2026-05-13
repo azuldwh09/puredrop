@@ -50,20 +50,32 @@ export default function LevelCard({ level, isUnlocked, isCurrent, stars = 0, hig
         </div>
       )}
 
-      {/* Stars */}
+      {/* Stars
+          IMPORTANT: We render earned vs. unearned stars with explicit color
+          + opacity values rather than CSS 'filter: grayscale() opacity()'.
+          The CSS filter shorthand is unreliable in the Android WebView --
+          opacity() inside filter is sometimes ignored, and grayscale on
+          emoji/text glyphs renders inconsistently across Chromium builds.
+          Using flat color + opacity guarantees the gold star is visible on
+          every device. */}
       <div className="flex gap-0.5 mt-3">
-        {[1, 2, 3].map(s => (
-          <span
-            key={s}
-            style={{
-              fontSize: 18,
-              filter: stars >= s ? 'none' : 'grayscale(1) opacity(0.25)',
-              color: starColors[s - 1],
-            }}
-          >
-            ★
-          </span>
-        ))}
+        {[1, 2, 3].map(s => {
+          const earned = stars >= s;
+          return (
+            <span
+              key={s}
+              style={{
+                fontSize: 18,
+                color: earned ? '#fbbf24' : '#4b5563',  // gold vs. dim gray
+                opacity: earned ? 1 : 0.35,
+                textShadow: earned ? '0 0 4px rgba(251, 191, 36, 0.6)' : 'none',
+                lineHeight: 1,
+              }}
+            >
+              ★
+            </span>
+          );
+        })}
       </div>
 
       {/* High score */}
