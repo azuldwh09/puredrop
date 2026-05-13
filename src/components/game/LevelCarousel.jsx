@@ -25,7 +25,7 @@ export default function LevelCarousel({
   const cups = profile?.cups ?? 0;
   const noCups = cups <= 0;
 
-  const { levelData } = useLevelScores();
+  const { levelData = {} } = useLevelScores();
 
   // Center the carousel on highest unlocked level
   const [centerLevel, setCenterLevel] = useState(highestLevel);

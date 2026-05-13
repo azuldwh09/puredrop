@@ -2,19 +2,23 @@
 // LEVEL SCORES HOOK -- src/hooks/useLevelScores.js
 // =============================================================================
 // Fetches a player's personal level-completion history from Firestore.
-// Used by the Leaderboard screen's "My Scores" tab.
 //
 // What it loads:
-//   - Up to 10 most recent level completions for the signed-in user
-//   - Ordered by score descending
+//   - Up to 200 most recent level completions for the signed-in user
 //   - Each record: { level, score, win, stars, accuracy, created_at }
+//
+// Returns:
+//   - scores: raw array of records (used by Leaderboard "My Scores" tab)
+//   - levelData: map of { [level]: { stars, highScore } } -- used by LevelCarousel
+//                to render star ratings and best scores on each level card
+//   - loading, error
 //
 // Offline behavior:
 //   - If Firestore cache has results, returns those immediately
-//   - If offline and cache is empty, returns [] with no error
+//   - If offline and cache is empty, returns {} with no error
 // =============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
 import { isDemoMode } from '@/lib/demoMode';
 
@@ -35,7 +39,6 @@ export function useLevelScores() {
       setLoading(true);
       setError(null);
       try {
-        // Get current user (resolves instantly if auth is already initialized)
         const user = await getCurrentFirebaseUser();
         if (!user) {
           setScores([]);
@@ -43,7 +46,6 @@ export function useLevelScores() {
           return;
         }
 
-        // Lazy-import Firestore to avoid blocking the initial render
         const { getFirestore }                                 = await import('@/lib/firebaseAuth');
         const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
 
@@ -52,7 +54,7 @@ export function useLevelScores() {
           collection(db, 'levelScores'),
           where('uid', '==', user.uid),
           orderBy('score', 'desc'),
-          limit(10)
+          limit(200)
         );
 
         const snap    = await getDocs(q);
@@ -70,5 +72,23 @@ export function useLevelScores() {
     load();
   }, []);
 
-  return { scores, loading, error };
+  // Derive per-level best-score map (used by LevelCarousel cards)
+  const levelData = useMemo(() => {
+    const map = {};
+    if (!Array.isArray(scores)) return map;
+    for (const s of scores) {
+      const lvl = s?.level;
+      if (typeof lvl !== 'number') continue;
+      const existing = map[lvl];
+      if (!existing || (s.score ?? 0) > (existing.highScore ?? 0)) {
+        map[lvl] = {
+          stars:     s.stars ?? 0,
+          highScore: s.score ?? 0,
+        };
+      }
+    }
+    return map;
+  }, [scores]);
+
+  return { scores, levelData, loading, error };
 }
