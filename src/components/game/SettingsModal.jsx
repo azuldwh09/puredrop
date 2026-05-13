@@ -8,6 +8,14 @@ import TutorialModal from '@/components/game/TutorialModal';
 import { isDemoMode } from '@/lib/demoMode';
 import { useAuth } from '@/lib/AuthContext';
 
+// =============================================================================
+// External privacy policy URL -- hosted as PRIVACY_POLICY.md in the GitHub repo.
+// Using the GitHub-rendered URL means we have a stable, public link suitable
+// for Play Store / app store listings and external compliance audits, without
+// requiring the in-app /privacy-policy route to be reachable from a browser.
+// =============================================================================
+const PRIVACY_POLICY_URL = 'https://github.com/azuldwh09/puredrop/blob/main/PRIVACY_POLICY.md';
+
 export default function SettingsModal({ onClose, soundEnabled = true, onToggleSound, onTestSound }) {
   const { logout, navigateToLogin, authError } = useAuth();
   const [confirming, setConfirming] = useState(false);
@@ -247,14 +255,30 @@ export default function SettingsModal({ onClose, soundEnabled = true, onToggleSo
               <LogOut className="w-3 h-3 mr-2" />
               {isDemoMode() ? 'Sign In / Create Account' : 'Sign Out'}
             </Button>
-            <a
-              href="/privacy-policy#deletion"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center text-xs text-primary underline underline-offset-2 py-2 hover:text-primary/80 transition-colors"
-            >
-              Request Account & Data Deletion
-            </a>
+            {/* ----------------------------------------------------------------
+                Privacy & data-rights links. PRIVACY_POLICY_URL points to the
+                GitHub-hosted markdown copy so the link is valid in any context
+                (including the Play Store listing), even when the user is
+                offline from the in-app /privacy-policy route.
+            ---------------------------------------------------------------- */}
+            <div className="flex flex-col gap-1 pt-1">
+              <a
+                href={PRIVACY_POLICY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center text-xs text-primary underline underline-offset-2 py-2 hover:text-primary/80 transition-colors"
+              >
+                Privacy Policy
+              </a>
+              <a
+                href={PRIVACY_POLICY_URL + '#12-account--data-deletion'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center text-xs text-primary underline underline-offset-2 py-2 hover:text-primary/80 transition-colors"
+              >
+                Request Account & Data Deletion
+              </a>
+            </div>
             <div className="border border-border/50 rounded-xl p-4">
               <p className="text-xs text-muted-foreground mb-3">
                 Danger Zone — this cannot be undone.

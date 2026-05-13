@@ -28,7 +28,7 @@ export default function PrivacyPolicy() {
       <section className="mb-6">
         <h2 className="font-semibold text-base mb-2">3. Advertising & Third-Party Services</h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-2">
-          PureDrop uses <strong>Google AdSense</strong> to display advertisements. Google AdSense may use cookies, web beacons, and similar tracking technologies to serve ads based on your prior visits to this App and other websites.
+          PureDrop uses <strong>Google AdMob</strong> to display advertisements. Google AdMob may use cookies, web beacons, and similar tracking technologies to serve ads based on your prior visits to this App and other websites.
         </p>
         <p className="text-sm text-muted-foreground leading-relaxed mb-2">
           Google's use of advertising cookies enables it and its partners to serve ads to you based on your visit to our App and/or other sites on the Internet. You may opt out of personalized advertising by visiting <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google Ads Settings</a>.
@@ -37,7 +37,7 @@ export default function PrivacyPolicy() {
           For more information on how Google uses data when you use our App, please visit: <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer" className="text-primary underline">How Google uses information from sites or apps that use our services</a>.
         </p>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          We also use rewarded ad breaks (H5 Games Ads API) to allow users to earn in-game items by voluntarily watching short video advertisements.
+          We also use rewarded ads (Google AdMob Rewarded) to allow users to earn in-game items by voluntarily watching short video advertisements.
         </p>
       </section>
 
@@ -48,7 +48,7 @@ export default function PrivacyPolicy() {
         </p>
         <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
           <li><strong>Essential cookies:</strong> Required for login, session management, and core app functionality.</li>
-          <li><strong>Advertising cookies:</strong> Set by Google AdSense to deliver relevant advertisements and measure ad performance.</li>
+          <li><strong>Advertising cookies:</strong> Set by Google AdMob to deliver relevant advertisements and measure ad performance.</li>
           <li><strong>Preference cookies:</strong> Store your in-app preferences such as sound settings and dark/light mode.</li>
         </ul>
         <p className="text-sm text-muted-foreground leading-relaxed mt-2">
@@ -73,7 +73,7 @@ export default function PrivacyPolicy() {
           <li>Save and restore your game progress</li>
           <li>Display the global leaderboard</li>
           <li>Improve the App experience</li>
-          <li>Serve advertisements through Google AdSense</li>
+          <li>Serve advertisements through Google AdMob</li>
         </ul>
       </section>
 
@@ -83,9 +83,9 @@ export default function PrivacyPolicy() {
           We do not sell your personal data. We may share information in the following limited circumstances:
         </p>
         <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-          <li><strong>Google AdSense:</strong> Advertising data (including cookies and usage data) is shared with Google to serve and measure ads. See Google's <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">Privacy Policy</a>.</li>
+          <li><strong>Google AdMob:</strong> Advertising data (including cookies and usage data) is shared with Google to serve and measure ads. See Google's <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">Privacy Policy</a>.</li>
           <li><strong>Legal requirements:</strong> We may disclose data if required by law or to protect our legal rights.</li>
-          <li><strong>Service providers:</strong> We use Base44 as our backend platform, which processes data on our behalf under appropriate data protection agreements.</li>
+          <li><strong>Service providers:</strong> We use Firebase Authentication and Firestore (Google Cloud) as our backend platform. See the Firebase Privacy Policy at firebase.google.com/support/privacy.</li>
         </ul>
       </section>
 
