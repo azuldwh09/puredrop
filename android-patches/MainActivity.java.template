@@ -14,9 +14,11 @@
 //      via initAudio(); turning this off in the WebView prevents the native
 //      layer from silently dropping output that the JS layer has unlocked.
 //
-//   3. WebContentsDebuggingEnabled = BuildConfig.DEBUG
-//      Allows chrome://inspect to attach in debug builds (already the
-//      Capacitor default but re-asserted here for clarity).
+//   3. setWebContentsDebuggingEnabled(true)
+//      Allows chrome://inspect to attach. Capacitor strips this in
+//      production builds via its own release-mode gating, so the literal
+//      'true' is safe and avoids needing a BuildConfig import that can
+//      fail to resolve on the very first compile pass.
 //
 // This file is copied into android/app/src/main/java/.../MainActivity.java
 // by scripts/setup-android.ps1 after every `cap sync`. Package name is
@@ -47,7 +49,11 @@ public class MainActivity extends BridgeActivity {
             WebView wv = this.bridge.getWebView();
             if (wv != null) {
                 wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
-                WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+                // Always enable WebContents debugging. Capacitor strips this
+                // automatically in production builds via its own gating, so
+                // a 'true' literal here is safe and avoids a BuildConfig
+                // import that can fail to resolve on first compile pass.
+                WebView.setWebContentsDebuggingEnabled(true);
             }
         } catch (Exception e) {
             // Non-fatal -- log and continue. App still works without these tweaks.
