@@ -27,6 +27,7 @@
 // =============================================================================
 
 import { useRef, useCallback, useEffect } from 'react';
+import { dlog } from '@/lib/debugLog';
 
 // -- Piano pluck pitch library -------------------------------------------------
 // 8 different pitches and waveforms so consecutive drops don't all sound the same.
@@ -83,6 +84,7 @@ export const useGameAudio = (soundEnabled = true) => {
   const thunderTimerRef = useRef(null);  // setInterval handle for thunder scheduling
   const pianoTimerRef   = useRef(null);  // setInterval handle for background piano
   const soundEnabledRef = useRef(soundEnabled);
+  const firstDropLoggedRef = useRef(false);
   // Keep ref in sync on every render (cheap, runs during render -- guarantees
   // the latest value is read by callbacks even before useEffect commits).
   soundEnabledRef.current = soundEnabled;
@@ -97,18 +99,18 @@ export const useGameAudio = (soundEnabled = true) => {
   const initAudio = useCallback(() => {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) {
-      console.warn('[Audio] No AudioContext support in this WebView');
+      dlog('Audio', 'No AudioContext support in this WebView');
       return;
     }
 
     // Path 1: context already exists -- ensure it is running.
     if (audioContextRef.current) {
       const ctx = audioContextRef.current;
-      console.log('[Audio] initAudio: existing context state =', ctx.state);
+      dlog('Audio', 'initAudio: existing context', { state: ctx.state });
       if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
         ctx.resume()
-          .then(() => console.log('[Audio] resumed, state =', ctx.state))
-          .catch(err => console.warn('[Audio] resume failed:', err));
+          .then(() => dlog('Audio', 'resumed', { state: ctx.state }))
+          .catch(err => dlog('Audio', 'resume failed', { err: String(err) }));
       }
       return;
     }
@@ -117,10 +119,10 @@ export const useGameAudio = (soundEnabled = true) => {
     let ctx;
     try { ctx = new Ctx(); }
     catch (err) {
-      console.error('[Audio] new AudioContext() threw:', err);
+      dlog('Audio', 'new AudioContext() threw', { err: String(err) });
       return;
     }
-    console.log('[Audio] new context created, initial state =', ctx.state, 'sampleRate =', ctx.sampleRate);
+    dlog('Audio', 'context created', { state: ctx.state, sampleRate: ctx.sampleRate });
 
     const master = ctx.createGain();
     master.gain.value = 1;
@@ -133,8 +135,8 @@ export const useGameAudio = (soundEnabled = true) => {
     // gesture -- it MUST happen synchronously inside the gesture handler.
     if (ctx.state === 'suspended') {
       ctx.resume()
-        .then(() => console.log('[Audio] post-create resume ok, state =', ctx.state))
-        .catch(err => console.warn('[Audio] post-create resume failed:', err));
+        .then(() => dlog('Audio', 'post-create resume ok', { state: ctx.state }))
+        .catch(err => dlog('Audio', 'post-create resume failed', { err: String(err) }));
     }
 
     // Warm-up silent oscillator -- known workaround for Android WebView
@@ -147,7 +149,7 @@ export const useGameAudio = (soundEnabled = true) => {
       warm.start(ctx.currentTime);
       warm.stop(ctx.currentTime + 0.05);
     } catch (err) {
-      console.warn('[Audio] warm-up oscillator failed:', err);
+      dlog('Audio', 'warm-up oscillator failed', { err: String(err) });
     }
   }, []);
 
@@ -160,10 +162,10 @@ export const useGameAudio = (soundEnabled = true) => {
     const ctx    = audioContextRef.current;
     const master = masterGainRef.current;
     if (!ctx || !master) {
-      console.warn('[Audio] playTestTone: no ctx/master after init');
+      dlog('Audio', 'playTestTone: no ctx/master after init');
       return;
     }
-    console.log('[Audio] playTestTone fired, ctx.state =', ctx.state);
+    dlog('Audio', 'playTestTone fired', { state: ctx.state });
     const osc = ctx.createOscillator();
     const g   = ctx.createGain();
     osc.type = 'sine';
@@ -274,11 +276,25 @@ export const useGameAudio = (soundEnabled = true) => {
   // ==========================================================================
   // Picks a random pitch variant and plays a piano pluck.
   const playDropCatch = useCallback(() => {
-    if (!soundEnabledRef.current) return;
+    if (!soundEnabledRef.current) {
+      if (!firstDropLoggedRef.current) {
+        firstDropLoggedRef.current = true;
+        dlog('Audio', 'playDropCatch: sound disabled (soundEnabledRef=false)');
+      }
+      return;
+    }
     initAudio();
     const ctx    = audioContextRef.current;
     const master = masterGainRef.current;
-    if (!ctx || !master) return;
+    if (!ctx || !master) {
+      dlog('Audio', 'playDropCatch: missing ctx/master', { hasCtx: !!ctx, hasMaster: !!master });
+      return;
+    }
+
+    if (!firstDropLoggedRef.current) {
+      firstDropLoggedRef.current = true;
+      dlog('Audio', 'playDropCatch: first call', { state: ctx.state, masterGain: master.gain.value });
+    }
 
     const v = DROP_VARIANTS[Math.floor(Math.random() * DROP_VARIANTS.length)];
     playPluck(ctx, master, v.freq, v.type, v.dur, v.vol);
