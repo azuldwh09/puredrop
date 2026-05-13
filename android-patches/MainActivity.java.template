@@ -1,0 +1,57 @@
+// =============================================================================
+// MainActivity.java -- PureDrop
+// =============================================================================
+// Custom Capacitor MainActivity that fixes Android audio-routing quirks:
+//
+//   1. setVolumeControlStream(STREAM_MUSIC)
+//      Ensures the hardware volume keys control the music stream (not the
+//      ringer / system stream). Without this, the WebView's audio output
+//      can be routed to a stream the user has no controls for, making the
+//      app appear silent.
+//
+//   2. setMediaPlaybackRequiresUserGesture(false) on the WebView settings
+//      The autoplay policy is already satisfied at the AudioContext level
+//      via initAudio(); turning this off in the WebView prevents the native
+//      layer from silently dropping output that the JS layer has unlocked.
+//
+//   3. WebContentsDebuggingEnabled = BuildConfig.DEBUG
+//      Allows chrome://inspect to attach in debug builds (already the
+//      Capacitor default but re-asserted here for clarity).
+//
+// This file is copied into android/app/src/main/java/.../MainActivity.java
+// by scripts/setup-android.ps1 after every `cap sync`. Package name is
+// substituted at copy time.
+// =============================================================================
+package __PACKAGE__;
+
+import android.media.AudioManager;
+import android.os.Bundle;
+import android.webkit.WebView;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // (1) Route volume rocker to the music stream so the user can
+        //     control PureDrop's audio level with the hardware keys.
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+
+        // (2) Tell the WebView that media playback does NOT require a user
+        //     gesture at the native level. We already gate audio in JS on a
+        //     real user gesture; the native gate would otherwise silently
+        //     mute Web Audio API output on some Android builds.
+        try {
+            WebView wv = this.bridge.getWebView();
+            if (wv != null) {
+                wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+            }
+        } catch (Exception e) {
+            // Non-fatal -- log and continue. App still works without these tweaks.
+            android.util.Log.w("PureDrop", "WebView audio settings tweak failed: " + e.getMessage());
+        }
+    }
+}

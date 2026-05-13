@@ -28,6 +28,7 @@
 
 import { useRef, useCallback, useEffect } from 'react';
 import { dlog } from '@/lib/debugLog';
+import { primeAudio } from '@/lib/audioPrimer';
 
 // -- Piano pluck pitch library -------------------------------------------------
 // 8 different pitches and waveforms so consecutive drops don't all sound the same.
@@ -97,6 +98,10 @@ export const useGameAudio = (soundEnabled = true) => {
   // (chrome://inspect) sessions can immediately show whether audio is
   // unlocking on the device. The cost is a few console messages per game.
   const initAudio = useCallback(() => {
+    // Some Android WebView builds will not route Web Audio output until a
+    // regular <audio> element has played. Fire the silent-WAV primer first.
+    primeAudio();
+
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) {
       dlog('Audio', 'No AudioContext support in this WebView');

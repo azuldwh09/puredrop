@@ -3,19 +3,19 @@ param([string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot))
 Write-Host '=== PureDrop Android Setup ===' -ForegroundColor Cyan
 Set-Location $ProjectRoot
 
-Write-Host '`n[1/8] Installing dependencies...' -ForegroundColor Yellow
+Write-Host '`n[1/9] Installing dependencies...' -ForegroundColor Yellow
 npm install --legacy-peer-deps
 if ($LASTEXITCODE -ne 0) { Write-Host 'npm install failed!' -ForegroundColor Red; exit 1 }
 
-Write-Host '`n[2/8] Building web assets...' -ForegroundColor Yellow
+Write-Host '`n[2/9] Building web assets...' -ForegroundColor Yellow
 npm run build
 if ($LASTEXITCODE -ne 0) { Write-Host 'Build failed!' -ForegroundColor Red; exit 1 }
 
-Write-Host '`n[3/8] Syncing Capacitor (generates android/ if needed)...' -ForegroundColor Yellow
+Write-Host '`n[3/9] Syncing Capacitor (generates android/ if needed)...' -ForegroundColor Yellow
 npx cap sync android
 if ($LASTEXITCODE -ne 0) { Write-Host 'cap sync failed!' -ForegroundColor Red; exit 1 }
 
-Write-Host '`n[4/8] Copying google-services.json...' -ForegroundColor Yellow
+Write-Host '`n[4/9] Copying google-services.json...' -ForegroundColor Yellow
 $src = Join-Path $ProjectRoot 'android-patches\google-services.json'
 $dst = Join-Path $ProjectRoot 'android\app\google-services.json'
 if (Test-Path $src) {
@@ -25,7 +25,7 @@ if (Test-Path $src) {
     Write-Host "  MISSING: $src" -ForegroundColor Red
 }
 
-Write-Host '`n[5/8] Copying variables.gradle (enables rgcfaIncludeGoogle)...' -ForegroundColor Yellow
+Write-Host '`n[5/9] Copying variables.gradle (enables rgcfaIncludeGoogle)...' -ForegroundColor Yellow
 $src3 = Join-Path $ProjectRoot 'android-patches\variables.gradle'
 $dst3 = Join-Path $ProjectRoot 'android\variables.gradle'
 if (Test-Path $src3) {
@@ -35,7 +35,7 @@ if (Test-Path $src3) {
     Write-Host "  MISSING: $src3 -- Google Sign-In will NOT work without this!" -ForegroundColor Red
 }
 
-Write-Host '`n[6/8] Applying AndroidManifest.xml...' -ForegroundColor Yellow
+Write-Host '`n[6/9] Applying AndroidManifest.xml...' -ForegroundColor Yellow
 $src2 = Join-Path $ProjectRoot 'android-patches\AndroidManifest.xml'
 $dst2 = Join-Path $ProjectRoot 'android\app\src\main\AndroidManifest.xml'
 if (Test-Path $src2) {
@@ -45,7 +45,7 @@ if (Test-Path $src2) {
     Write-Host "  MISSING: $src2" -ForegroundColor Red
 }
 
-Write-Host '`n[7/8] Fixing ProGuard to use R8-compatible config...' -ForegroundColor Yellow
+Write-Host '`n[7/9] Fixing ProGuard to use R8-compatible config...' -ForegroundColor Yellow
 $gradle = Join-Path $ProjectRoot 'android\app\build.gradle'
 if (Test-Path $gradle) {
     $c = Get-Content $gradle -Raw
@@ -54,7 +54,7 @@ if (Test-Path $gradle) {
     Write-Host '  OK proguard-android-optimize.txt' -ForegroundColor Green
 }
 
-Write-Host '`n[8/8] Deploying app icons...' -ForegroundColor Yellow
+Write-Host '`n[8/9] Deploying app icons...' -ForegroundColor Yellow
 $iconSrc = Join-Path $ProjectRoot 'android-resources'
 $iconDst = Join-Path $ProjectRoot 'android\app\src\main\res'
 if (Test-Path $iconSrc) {
@@ -70,6 +70,33 @@ if (Test-Path $iconSrc) {
     }
 } else {
     Write-Host '  SKIP no android-resources folder' -ForegroundColor Yellow
+}
+
+
+Write-Host '`n[9/9] Installing custom MainActivity.java (audio routing fix)...' -ForegroundColor Yellow
+# Capacitor uses package = appId from capacitor.config.json.
+# Read it so we substitute the correct package in the MainActivity template.
+$cfg = Get-Content (Join-Path $ProjectRoot 'capacitor.config.json') -Raw | ConvertFrom-Json
+$pkg = $cfg.appId
+if (-not $pkg) {
+    Write-Host '  ERROR: appId missing from capacitor.config.json' -ForegroundColor Red
+} else {
+    $template = Join-Path $ProjectRoot 'android-patches\MainActivity.java.template'
+    if (-not (Test-Path $template)) {
+        Write-Host "  MISSING: $template" -ForegroundColor Red
+    } else {
+        # Convert dotted package to slash path for filesystem.
+        $pkgPath = $pkg -replace '\.', ''
+        $maDir = Join-Path $ProjectRoot ("androidpp\src\main\java" + $pkgPath)
+        if (-not (Test-Path $maDir)) {
+            New-Item -ItemType Directory -Path $maDir -Force | Out-Null
+        }
+        $maDst = Join-Path $maDir 'MainActivity.java'
+        $content = Get-Content $template -Raw
+        $content = $content -replace '__PACKAGE__', $pkg
+        Set-Content $maDst $content -NoNewline
+        Write-Host "  OK MainActivity.java -> $pkg" -ForegroundColor Green
+    }
 }
 
 Write-Host '`n=== Setup complete! Open Android Studio, then: Build > Clean Project > Run ===' -ForegroundColor Green
