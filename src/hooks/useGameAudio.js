@@ -392,6 +392,10 @@ export const useGameAudio = (soundEnabled = true) => {
     playThunder,      // play a single thunder rumble
     startAmbientPiano, // start the background piano ticks
     stopAmbientPiano,  // stop the background piano ticks
+    startBackgroundMusic: startAmbientPiano, // alias
+    stopBackgroundMusic:  stopAmbientPiano,  // alias
+    playcatch:    playDropCatch, // alias (legacy name)
+    playCatMeow:  playMiss,      // alias -- no dedicated meow sound yet, fall back to miss
     initAudio,         // call on first user gesture to unlock AudioContext
   };
 };
