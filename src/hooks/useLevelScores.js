@@ -1,74 +1,74 @@
-/**
- * Fetches all LevelScore records for the current user from Firestore.
- * Offline-first: loads from localStorage cache instantly, syncs when online.
- */
+// =============================================================================
+// LEVEL SCORES HOOK -- src/hooks/useLevelScores.js
+// =============================================================================
+// Fetches a player's personal level-completion history from Firestore.
+// Used by the Leaderboard screen's "My Scores" tab.
+//
+// What it loads:
+//   - Up to 10 most recent level completions for the signed-in user
+//   - Ordered by score descending
+//   - Each record: { level, score, win, stars, accuracy, created_at }
+//
+// Offline behavior:
+//   - If Firestore cache has results, returns those immediately
+//   - If offline and cache is empty, returns [] with no error
+// =============================================================================
+
 import { useState, useEffect } from 'react';
 import { getCurrentFirebaseUser } from '@/lib/firebaseAuth';
-import { getFirestore } from '@/lib/firebaseAuth';
 import { isDemoMode } from '@/lib/demoMode';
 
-const LEVEL_SCORES_CACHE_KEY = 'puredrop_level_scores';
-
-function getCachedLevelScores() {
-  try { return JSON.parse(localStorage.getItem(LEVEL_SCORES_CACHE_KEY)) || null; }
-  catch { return null; }
-}
-
-function setCachedLevelScores(map) {
-  try { localStorage.setItem(LEVEL_SCORES_CACHE_KEY, JSON.stringify(map)); } catch {}
-}
-
 export function useLevelScores() {
-  const [levelData, setLevelData] = useState(() => getCachedLevelScores() || {});
+  const [scores,  setScores]  = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    if (isDemoMode()) { setLoading(false); return; }
+    // Demo mode: no server scores to show
+    if (isDemoMode()) {
+      setScores([]);
+      setLoading(false);
+      return;
+    }
 
     const load = async () => {
-      const cached = getCachedLevelScores();
-      if (cached) { setLevelData(cached); setLoading(false); }
-
+      setLoading(true);
+      setError(null);
       try {
+        // Get current user (resolves instantly if auth is already initialized)
         const user = await getCurrentFirebaseUser();
-        if (!user) { setLoading(false); return; }
+        if (!user) {
+          setScores([]);
+          setLoading(false);
+          return;
+        }
+
+        // Lazy-import Firestore to avoid blocking the initial render
+        const { getFirestore }                                 = await import('@/lib/firebaseAuth');
+        const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
 
         const db = await getFirestore();
-        const { collection, query, where, getDocs } = await import('firebase/firestore');
-        const q = query(collection(db, 'levelScores'), where('uid', '==', user.uid));
-        const snap = await getDocs(q);
+        const q  = query(
+          collection(db, 'levelScores'),
+          where('uid', '==', user.uid),
+          orderBy('score', 'desc'),
+          limit(10)
+        );
 
-        const map = {};
-        for (const d of snap.docs) {
-          const s = d.data();
-          const prev = map[s.level];
-          if (!prev || s.stars > prev.stars || (s.stars === prev.stars && s.score > prev.highScore)) {
-            map[s.level] = { stars: s.stars || 0, highScore: s.score };
-          }
-        }
-        setLevelData(map);
-        setCachedLevelScores(map);
+        const snap    = await getDocs(q);
+        const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setScores(records);
       } catch (err) {
-        console.warn('useLevelScores: could not fetch from Firestore', err);
+        console.error('[LevelScores] Failed to load:', err);
+        setError('Could not load your scores.');
+        setScores([]);
       } finally {
         setLoading(false);
       }
     };
 
     load();
-    window.addEventListener('online', load);
-    return () => window.removeEventListener('online', load);
   }, []);
 
-  const updateLocalScore = (level, stars, score) => {
-    setLevelData(prev => {
-      const existing = prev[level];
-      if (existing && existing.stars >= stars && existing.highScore >= score) return prev;
-      const updated = { ...prev, [level]: { stars: Math.max(existing?.stars || 0, stars), highScore: Math.max(existing?.highScore || 0, score) } };
-      setCachedLevelScores(updated);
-      return updated;
-    });
-  };
-
-  return { levelData, loading, updateLocalScore };
+  return { scores, loading, error };
 }

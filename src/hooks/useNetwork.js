@@ -1,23 +1,38 @@
+// =============================================================================
+// NETWORK STATUS HOOK -- src/hooks/useNetwork.js
+// =============================================================================
+// Exposes a reactive boolean indicating whether the device currently has
+// internet connectivity. Subscribes to the browser's online/offline events.
+//
+// Usage:
+//   const isOnline = useNetwork();
+//   // isOnline: true = connected, false = no internet
+//
+// Note: navigator.onLine can be wrong in some edge cases (e.g. connected to a
+// Wi-Fi router with no upstream internet). It is good enough for showing UI
+// warnings but should not be relied on for critical data decisions.
+// =============================================================================
+
 import { useState, useEffect } from 'react';
-import { Network } from '@capacitor/network';
 
 export function useNetwork() {
-  const [isOnline, setIsOnline] = useState(true);
+  // Initialize from navigator.onLine so the value is correct on mount
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
   useEffect(() => {
-    // Get initial status
-    Network.getStatus().then(status => setIsOnline(status.connected));
+    const handleOnline  = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
-    // Listen for changes
-    const listener = Network.addListener('networkStatusChange', status => {
-      setIsOnline(status.connected);
-      console.log('Network status changed:', status.connected ? 'online' : 'offline');
-    });
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     return () => {
-      listener.then(l => l.remove());
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  return { isOnline };
+  return isOnline;
 }

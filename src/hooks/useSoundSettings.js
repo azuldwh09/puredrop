@@ -1,21 +1,35 @@
-// Persists sound on/off preference in localStorage
-import { useState, useCallback } from 'react';
+// =============================================================================
+// SOUND SETTINGS HOOK -- src/hooks/useSoundSettings.js
+// =============================================================================
+// Persists the player's sound-enabled preference to localStorage and provides
+// a toggle function. Used by the Settings modal and passed down to useGameAudio.
+//
+// Default: sound ON (true).
+// =============================================================================
 
-const KEY = 'puredrop_sound_enabled';
+import { useState, useEffect } from 'react';
+
+const STORAGE_KEY = 'puredrop_sound';
 
 export function useSoundSettings() {
+  // Initialize from localStorage so the preference survives app restarts
   const [soundEnabled, setSoundEnabled] = useState(() => {
-    const stored = localStorage.getItem(KEY);
-    return stored === null ? true : stored === 'true';
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true; // default ON if localStorage is unavailable
+    }
   });
 
-  const toggleSound = useCallback(() => {
-    setSoundEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem(KEY, String(next));
-      return next;
-    });
-  }, []);
+  // Persist every change to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, String(soundEnabled)); }
+    catch {}
+  }, [soundEnabled]);
+
+  // Toggle between on and off
+  const toggleSound = () => setSoundEnabled(prev => !prev);
 
   return { soundEnabled, toggleSound };
 }
