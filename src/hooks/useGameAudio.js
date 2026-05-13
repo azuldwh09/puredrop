@@ -64,10 +64,24 @@ function playPluck(ctx, masterGain, freq, type, dur, vol) {
   g2.connect(g);
   g.connect(masterGain);
 
-  // Quick attack + exponential decay = pluck character
+  // Quick attack + exponential decay = pluck character.
+  // Start near-zero and ramp up over 5ms to avoid the instantaneous 0->vol
+  // jump that causes audible clicks/pops on some devices (especially older
+  // Android speakers and Bluetooth output paths).
   const t = ctx.currentTime;
-  g.gain.setValueAtTime(vol, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.005);
   g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+  // onended disconnect releases the audio graph nodes promptly instead of
+  // waiting on GC. Important on Safari where retained nodes can pile up.
+  const cleanup = () => {
+    try { osc.disconnect(); }  catch (_) {}
+    try { osc2.disconnect(); } catch (_) {}
+    try { g.disconnect(); }    catch (_) {}
+    try { g2.disconnect(); }   catch (_) {}
+  };
+  osc.onended = cleanup;
 
   osc.start(t);  osc.stop(t + dur);
   osc2.start(t); osc2.stop(t + dur);
@@ -82,13 +96,29 @@ export const useGameAudio = (soundEnabled = true) => {
   const masterGainRef   = useRef(null);  // master volume bus (all sounds route through this)
   const rainNoiseRef    = useRef(null);  // reference to the rain noise source node
   const rainGainRef     = useRef(null);  // gain node for rain volume
-  const thunderTimerRef = useRef(null);  // setInterval handle for thunder scheduling
-  const pianoTimerRef   = useRef(null);  // setInterval handle for background piano
+  const thunderTimerRef = useRef(null);  // setTimeout handle for next thunder (recursive)
+  const pianoTimerRef   = useRef(null);  // setTimeout handle for next piano tick (recursive)
   const soundEnabledRef = useRef(soundEnabled);
   const firstDropLoggedRef = useRef(false);
+  // Tracks every setTimeout id created by the multi-shot sequence sounds
+  // (playWin/playLose/playPowerUp). Cleared en masse on unmount so timers
+  // can't fire into a closed AudioContext.
+  const pendingTimeoutsRef = useRef(new Set());
   // Keep ref in sync on every render (cheap, runs during render -- guarantees
   // the latest value is read by callbacks even before useEffect commits).
   soundEnabledRef.current = soundEnabled;
+
+  // Wrapper around setTimeout that registers the id in pendingTimeoutsRef so
+  // the unmount cleanup can clear every pending callback in one pass. Used by
+  // the multi-note sequence sounds (playWin / playLose / playPowerUp).
+  const scheduleTimeout = (fn, delay) => {
+    const id = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(id);
+      fn();
+    }, delay);
+    pendingTimeoutsRef.current.add(id);
+    return id;
+  };
 
   // -- AudioContext initialization -------------------------------------------
   // Called lazily on the first user gesture to satisfy the autoplay policy
@@ -114,10 +144,21 @@ export const useGameAudio = (soundEnabled = true) => {
       return;
     }
 
-    // Path 1: context already exists -- ensure it is running.
+    // Path 1: context already exists.
     if (audioContextRef.current) {
       const ctx = audioContextRef.current;
       dlog('Audio', 'initAudio: existing context', { state: ctx.state });
+
+      // (#6) If the OS closed the context (can happen on Android after a
+      // long background pause or audio focus loss), drop the stale reference
+      // and re-enter this function to build a fresh one.
+      if (ctx.state === 'closed') {
+        dlog('Audio', 'existing context closed -- recreating');
+        audioContextRef.current = null;
+        masterGainRef.current   = null;
+        return initAudio();
+      }
+
       if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
         ctx.resume()
           .then(() => dlog('Audio', 'resumed', { state: ctx.state }))
@@ -189,10 +230,41 @@ export const useGameAudio = (soundEnabled = true) => {
   }, [initAudio]);
 
   // ==========================================================================
+  // Thunder scheduler (recursive setTimeout)
+  // ==========================================================================
+  // setInterval with a random delay only randomizes ONCE at creation, then
+  // fires at the same cadence forever. To get a fresh random interval each
+  // strike (8-20s), we recursively schedule with setTimeout. The handle is
+  // stored on thunderTimerRef so cleanup can cancel a pending strike.
+  //
+  // Defined as a ref-stored function so playThunder and stopRain (declared
+  // below) can both reference it without TDZ issues.
+  const scheduleThunderRef = useRef(null);
+  scheduleThunderRef.current = () => {
+    if (!soundEnabledRef.current) return;
+    const delay = 8000 + Math.random() * 12000; // 8-20 seconds
+    thunderTimerRef.current = setTimeout(() => {
+      // Re-check on fire: rain may have stopped while we were waiting.
+      if (rainNoiseRef.current && soundEnabledRef.current) {
+        // playThunder is closed over via the outer scope at call time.
+        try { playThunderRef.current && playThunderRef.current(); } catch (_) {}
+        scheduleThunderRef.current && scheduleThunderRef.current();
+      } else {
+        thunderTimerRef.current = null;
+      }
+    }, delay);
+  };
+  // Forward declaration so scheduleThunder can call playThunder before it's
+  // defined further down. Filled in below once playThunder exists.
+  const playThunderRef = useRef(null);
+
+  // ==========================================================================
   // Ambient rain loop
   // ==========================================================================
   // Generates a continuous band-pass-filtered white noise to simulate rain.
   // Volume fades in slowly over 2 seconds so it doesn't startle the player.
+  // Also kicks off the recursive thunder scheduler so distant rumbles play
+  // randomly every 8-20 seconds for the lifetime of the rain.
   const startRain = useCallback(() => {
     if (!soundEnabledRef.current) return;
     initAudio();
@@ -233,18 +305,36 @@ export const useGameAudio = (soundEnabled = true) => {
 
     rainNoiseRef.current = source;
     rainGainRef.current  = rainGain;
+
+    // Kick off random thunder scheduling. If one is already pending we leave
+    // it alone (startRain may be called again after a brief stop/start).
+    if (!thunderTimerRef.current && scheduleThunderRef.current) {
+      scheduleThunderRef.current();
+    }
   }, [initAudio]);
 
   // ==========================================================================
   // Stop ambient rain
   // ==========================================================================
   const stopRain = useCallback(() => {
+    // (#3) Disconnect every node in the rain graph so they release immediately
+    // instead of waiting on the audio-graph GC. Without this, long sessions
+    // that toggle rain on/off can accumulate dozens of orphaned filter/gain
+    // nodes that quietly use CPU.
     if (rainNoiseRef.current) {
-      try { rainNoiseRef.current.stop(); } catch (_) {}
+      try { rainNoiseRef.current.stop(); }       catch (_) {}
+      try { rainNoiseRef.current.disconnect(); } catch (_) {}
       rainNoiseRef.current = null;
     }
+    if (rainGainRef.current) {
+      try { rainGainRef.current.disconnect(); }  catch (_) {}
+      rainGainRef.current = null;
+    }
+    // (#1) Thunder is scheduled with setTimeout (not setInterval). Use the
+    // matching clearer or the cancel becomes a no-op and a strike still
+    // fires after stopRain returns.
     if (thunderTimerRef.current) {
-      clearInterval(thunderTimerRef.current);
+      clearTimeout(thunderTimerRef.current);
       thunderTimerRef.current = null;
     }
   }, []);
@@ -259,6 +349,7 @@ export const useGameAudio = (soundEnabled = true) => {
     const ctx    = audioContextRef.current;
     const master = masterGainRef.current;
     if (!ctx || !master) return;
+    // (no-op marker for scheduleThunder forward-ref wiring below)
 
     const bufferSize = ctx.sampleRate * 1.2;
     const buffer     = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
@@ -280,7 +371,15 @@ export const useGameAudio = (soundEnabled = true) => {
     filter.connect(g);
     g.connect(master);
     source.start();
+    source.onended = () => {
+      try { source.disconnect(); } catch (_) {}
+      try { filter.disconnect(); } catch (_) {}
+      try { g.disconnect(); }      catch (_) {}
+    };
   }, []);
+  // Wire the forward ref now that playThunder exists. scheduleThunder uses
+  // playThunderRef.current to invoke this without a circular dep.
+  playThunderRef.current = playThunder;
 
   // ==========================================================================
   // Drop caught sound
@@ -352,7 +451,7 @@ export const useGameAudio = (soundEnabled = true) => {
 
     const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
     notes.forEach((freq, i) => {
-      setTimeout(() => playPluck(ctx, master, freq, 'sine', 0.5, 0.2), i * 80);
+      scheduleTimeout(() => playPluck(ctx, master, freq, 'sine', 0.5, 0.2), i * 80);
     });
   }, [initAudio]);
 
@@ -369,7 +468,7 @@ export const useGameAudio = (soundEnabled = true) => {
 
     const notes = [622, 523, 440]; // Eb5, C5, A4
     notes.forEach((freq, i) => {
-      setTimeout(() => playPluck(ctx, master, freq, 'triangle', 0.6, 0.18), i * 90);
+      scheduleTimeout(() => playPluck(ctx, master, freq, 'triangle', 0.6, 0.18), i * 90);
     });
   }, [initAudio]);
 
@@ -386,7 +485,7 @@ export const useGameAudio = (soundEnabled = true) => {
 
     const freqs = [800, 1000, 1200, 1500, 1900];
     freqs.forEach((freq, i) => {
-      setTimeout(() => playPluck(ctx, master, freq, 'sine', 0.2, 0.12), i * 40);
+      scheduleTimeout(() => playPluck(ctx, master, freq, 'sine', 0.2, 0.12), i * 40);
     });
   }, [initAudio]);
 
@@ -448,24 +547,56 @@ export const useGameAudio = (soundEnabled = true) => {
       1046, 1175, 1319,          // C6 D6 E6
     ];
 
+    // (#2/#7) Recursive setTimeout instead of setInterval -- this is the only
+    // way to get a *fresh* random delay between each note. setInterval with a
+    // random arg picks the delay once and then fires at that constant cadence
+    // forever, which is musically boring and not what the comment promises.
     const tick = () => {
+      pianoTimerRef.current = null;
       if (!soundEnabledRef.current) return;
       const ctx    = audioContextRef.current;
       const master = masterGainRef.current;
       if (!ctx || !master) return;
       const freq = pentatonic[Math.floor(Math.random() * pentatonic.length)];
       playPluck(ctx, master, freq, 'sine', 0.8, 0.05); // very quiet (0.05 vol)
+      // Schedule the next note with a brand-new random delay (6-12s).
+      pianoTimerRef.current = setTimeout(tick, 6000 + Math.random() * 6000);
     };
-
-    pianoTimerRef.current = setInterval(tick, 6000 + Math.random() * 6000);
+    pianoTimerRef.current = setTimeout(tick, 6000 + Math.random() * 6000);
   }, [initAudio]);
 
   const stopAmbientPiano = useCallback(() => {
+    // (#2) Matching clearTimeout for the recursive setTimeout chain above.
     if (pianoTimerRef.current) {
-      clearInterval(pianoTimerRef.current);
+      clearTimeout(pianoTimerRef.current);
       pianoTimerRef.current = null;
     }
   }, []);
+
+  // ==========================================================================
+  // Mirror soundEnabled -> master gain
+  // ==========================================================================
+  // Each per-sound callback already early-returns when soundEnabled is false,
+  // but we also drive the master gain so that:
+  //   (a) any in-flight tail (rain noise, decaying piano notes) goes silent
+  //       instantly when the user toggles sound off,
+  //   (b) the comment at the top of the file -- "master gain goes to 0 when
+  //       soundEnabled is false" -- is actually true.
+  // Uses linearRampToValueAtTime for a 50ms fade to avoid clicks on toggle.
+  useEffect(() => {
+    const master = masterGainRef.current;
+    const ctx    = audioContextRef.current;
+    if (!master || !ctx) return;
+    try {
+      const t = ctx.currentTime;
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(master.gain.value, t);
+      master.gain.linearRampToValueAtTime(soundEnabled ? 1 : 0, t + 0.05);
+    } catch (_) {
+      // Fallback: synchronous assignment if scheduling isn't available.
+      master.gain.value = soundEnabled ? 1 : 0;
+    }
+  }, [soundEnabled]);
 
   // ==========================================================================
   // Cleanup on unmount
@@ -474,9 +605,19 @@ export const useGameAudio = (soundEnabled = true) => {
     return () => {
       stopRain();
       stopAmbientPiano();
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {});
-        audioContextRef.current = null;
+      // (#4) Cancel every pending sequence-sound timeout so the callbacks
+      // can't fire into the about-to-be-closed AudioContext.
+      pendingTimeoutsRef.current.forEach(id => clearTimeout(id));
+      pendingTimeoutsRef.current.clear();
+      // (#5) Null the ref BEFORE calling close() and only close if the
+      // context isn't already closed. Prevents the race where a stale
+      // callback grabs the ref after we've started closing it, and avoids
+      // a 'cannot close a context that is already closed' InvalidStateError.
+      const ctx = audioContextRef.current;
+      audioContextRef.current = null;
+      masterGainRef.current   = null;
+      if (ctx && ctx.state !== 'closed') {
+        ctx.close().catch(() => {});
       }
     };
   }, [stopRain, stopAmbientPiano]);
