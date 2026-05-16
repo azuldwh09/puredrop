@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Player profiles: each user can only read/write their own document
+    match /playerProfiles/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Level scores: each user can write/read their own records
+    match /levelScores/{docId} {
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow read:   if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // Leaderboard: anyone authenticated can read; users can only write their own entries
+    match /leaderboard/{docId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+  }
+}
